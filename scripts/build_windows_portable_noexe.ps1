@@ -21,6 +21,7 @@ Copy-Item launch_bioinfostudio.bat BioinformaticsStudio-windows-noexe/launch_bio
 Copy-Item launch_bioinfostudio.cmd BioinformaticsStudio-windows-noexe/launch_bioinfostudio.cmd -Force
 Copy-Item launch_conda.bat BioinformaticsStudio-windows-noexe/launch_conda.bat -Force
 Copy-Item scripts/setup_conda_env.bat BioinformaticsStudio-windows-noexe/setup_conda_env.bat -Force
+Copy-Item scripts/setup_spyder_env.bat BioinformaticsStudio-windows-noexe/setup_spyder_env.bat -Force
 
 $launcher = @'
 @echo off

@@ -123,3 +123,13 @@ If the app does not launch with system Python, use Conda:
 Optional custom env name:
 - `scripts\setup_conda_env.bat myenv` then `launch_conda.bat myenv`
 - `./scripts/setup_conda_env.sh myenv` then `./launch_conda.sh myenv`
+
+
+### Spyder setup helper (no Conda required)
+
+If corporate policy blocks Conda activation, use:
+
+- Windows: `scripts\setup_spyder_env.bat`
+- Linux/macOS: `./scripts/setup_spyder_env.sh`
+
+Then start Spyder with `launch_spyder.bat` / `./launch_spyder.sh`.
