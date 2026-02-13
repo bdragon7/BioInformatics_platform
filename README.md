@@ -27,3 +27,8 @@ pytest
 ## Portable packaging direction
 
 This scaffold is designed for a future Windows portable bundle layout (`BioPlatform.exe`, bundled Python/R runtime, app-local config/projects/logs) as described in `IMPLEMENTATION_PLAN.md`.
+
+
+## Enhanced roadmap
+
+See `ENHANCED_IMPLEMENTATION_ROADMAP.md` for the research-grade 12-month roadmap, risk register, and phase-by-phase testing strategy.
