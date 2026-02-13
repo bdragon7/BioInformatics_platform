@@ -75,3 +75,13 @@ How to get it from GitHub:
 3. Download the artifact zip/tarball from the workflow run page.
 
 If you want persistent download links, create a GitHub Release and attach the generated artifacts.
+
+
+## AI DoE assistant providers
+
+The DoE assistant is wired for **ChatGPT** or **Gemini** providers (not Claude-specific APIs):
+
+- ChatGPT: set `OPENAI_API_KEY`
+- Gemini: set `GEMINI_API_KEY`
+
+Implemented in `src/bioplatform/llm/doe_assistant.py`.
