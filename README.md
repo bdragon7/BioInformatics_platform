@@ -32,3 +32,21 @@ This scaffold is designed for a future Windows portable bundle layout (`BioPlatf
 ## Enhanced roadmap
 
 See `ENHANCED_IMPLEMENTATION_ROADMAP.md` for the research-grade 12-month roadmap, risk register, and phase-by-phase testing strategy.
+
+
+## Portable launchers
+
+```bash
+./launch_bioinfostudio.sh --help
+python main.py --help
+```
+
+Windows:
+
+```bat
+launch_bioinfostudio.bat --help
+```
+
+## UI/UX plan
+
+See `UI_UX_IMPLEMENTATION_PLAN.md` for detailed widget designs, color palette specs, icon requirements, and UI/UX testing strategy.
