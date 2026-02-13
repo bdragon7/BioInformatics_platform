@@ -1,4 +1,4 @@
-name: Build Portable Executables
+name: Build Portable Packages
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  build-windows:
+  build-windows-noexe:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -18,15 +18,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build portable package
+      - name: Build windows script-based package (no .exe)
         shell: pwsh
-        run: ./scripts/build_windows_portable.ps1
+        run: ./scripts/build_windows_portable_noexe.ps1
 
-      - name: Upload windows artifact
+      - name: Upload windows noexe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BioinformaticsStudio-portable-windows
-          path: BioinformaticsStudio-portable-windows.zip
+          name: BioinformaticsStudio-windows-noexe
+          path: BioinformaticsStudio-windows-noexe.zip
           if-no-files-found: error
 
   build-linux:
@@ -35,28 +35,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
+      - name: Build Linux script package
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install pyinstaller
-          python -m pip install -e '.[gui]'
-
-      - name: Build Linux onefile
-        run: |
-          pyinstaller --noconfirm --name BioinformaticsStudio main.py
-          mkdir -p BioinformaticsStudio-linux
-          cp -r dist/BioinformaticsStudio/* BioinformaticsStudio-linux/
-          cp launch_bioinfostudio.sh README.md BioinformaticsStudio-linux/
-          tar -czf BioinformaticsStudio-portable-linux.tar.gz -C BioinformaticsStudio-linux .
+          mkdir -p BioinformaticsStudio-linux-script
+          cp -r src tests BioinformaticsStudio-linux-script/
+          cp main.py pyproject.toml README.md launch_bioinfostudio.sh BioinformaticsStudio-linux-script/
+          tar -czf BioinformaticsStudio-linux-script.tar.gz -C BioinformaticsStudio-linux-script .
 
       - name: Upload linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BioinformaticsStudio-portable-linux
-          path: BioinformaticsStudio-portable-linux.tar.gz
+          name: BioinformaticsStudio-linux-script
+          path: BioinformaticsStudio-linux-script.tar.gz
           if-no-files-found: error

@@ -66,12 +66,12 @@ See `BIOPHYSICS_MICROBIOLOGY_INTEGRATION_PLAN.md` for detailed curve-fitting, QC
 
 This repository now includes CI packaging to generate downloadable artifacts:
 
-- Windows portable zip with executable: `BioinformaticsStudio-portable-windows.zip`
-- Linux portable tarball: `BioinformaticsStudio-portable-linux.tar.gz`
+- Windows portable zip with executable: `BioinformaticsStudio-windows-noexe.zip`
+- Linux portable tarball: `BioinformaticsStudio-linux-script.tar.gz`
 
 How to get it from GitHub:
 1. Open the **Actions** tab.
-2. Run **Build Portable Executables** (or use artifacts from a recent run).
+2. Run **Build Portable Packages** (or use artifacts from a recent run).
 3. Download the artifact zip/tarball from the workflow run page.
 
 If you want persistent download links, create a GitHub Release and attach the generated artifacts.
@@ -94,3 +94,15 @@ The desktop UX has been upgraded with an Adobe-inspired workspace style:
 - Hero header card with project state and global quick-search
 - Professional toolbar + inspector layout with command shortcuts (`Ctrl+K`, `Ctrl+L`)
 - Card-based panels and refined typography for improved readability during long analysis sessions
+
+
+## Windows without .exe
+
+The Windows package is script-based (no compiled `.exe`).
+
+1. Download `BioinformaticsStudio-windows-noexe.zip` from GitHub Actions artifacts.
+2. Extract it.
+3. Run `setup_windows_env.bat` once to create `.venv` and install dependencies.
+4. Launch with `run_windows_noexe.bat`.
+
+This avoids `.exe` binaries while remaining double-click runnable via batch scripts.
