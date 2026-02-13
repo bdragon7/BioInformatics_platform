@@ -60,3 +60,18 @@ See `REAL_WORLD_ENHANCEMENT_PLAN.md` for detailed implementation plans covering 
 ## Biophysics + microbiology regulatory integration plan
 
 See `BIOPHYSICS_MICROBIOLOGY_INTEGRATION_PLAN.md` for detailed curve-fitting, QC, and module-integration architecture covering EN 1276/ASTM biofilm standards and biophysics workflows (FA/ITC/SPR/IC50).
+
+
+## Downloadable executable builds (GitHub Actions)
+
+This repository now includes CI packaging to generate downloadable artifacts:
+
+- Windows portable zip with executable: `BioinformaticsStudio-portable-windows.zip`
+- Linux portable tarball: `BioinformaticsStudio-portable-linux.tar.gz`
+
+How to get it from GitHub:
+1. Open the **Actions** tab.
+2. Run **Build Portable Executables** (or use artifacts from a recent run).
+3. Download the artifact zip/tarball from the workflow run page.
+
+If you want persistent download links, create a GitHub Release and attach the generated artifacts.

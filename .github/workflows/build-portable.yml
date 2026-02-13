@@ -1,0 +1,62 @@
+name: Build Portable Executables
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "work"]
+  pull_request:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build portable package
+        shell: pwsh
+        run: ./scripts/build_windows_portable.ps1
+
+      - name: Upload windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-portable-windows
+          path: BioinformaticsStudio-portable-windows.zip
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+          python -m pip install -e '.[gui]'
+
+      - name: Build Linux onefile
+        run: |
+          pyinstaller --noconfirm --name BioinformaticsStudio main.py
+          mkdir -p BioinformaticsStudio-linux
+          cp -r dist/BioinformaticsStudio/* BioinformaticsStudio-linux/
+          cp launch_bioinfostudio.sh README.md BioinformaticsStudio-linux/
+          tar -czf BioinformaticsStudio-portable-linux.tar.gz -C BioinformaticsStudio-linux .
+
+      - name: Upload linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-portable-linux
+          path: BioinformaticsStudio-portable-linux.tar.gz
+          if-no-files-found: error
