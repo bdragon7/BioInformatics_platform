@@ -55,3 +55,8 @@ See `UI_UX_IMPLEMENTATION_PLAN.md` for detailed widget designs, color palette sp
 ## Real-world enhancements plan
 
 See `REAL_WORLD_ENHANCEMENT_PLAN.md` for detailed implementation plans covering optional R integration, QC algorithms, metadata schema, and error-prevention architecture.
+
+
+## Biophysics + microbiology regulatory integration plan
+
+See `BIOPHYSICS_MICROBIOLOGY_INTEGRATION_PLAN.md` for detailed curve-fitting, QC, and module-integration architecture covering EN 1276/ASTM biofilm standards and biophysics workflows (FA/ITC/SPR/IC50).
