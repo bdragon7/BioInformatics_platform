@@ -2,17 +2,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .helix_theme import generate_tonal_palette
+
 
 @dataclass(frozen=True)
 class SequenceColors:
-    a: str = "#60A5FA"
-    c: str = "#34D399"
-    g: str = "#F59E0B"
-    t: str = "#F472B6"
+    a: str
+    c: str
+    g: str
+    t: str
+
+
+def _default_sequence_colors() -> SequenceColors:
+    tones = generate_tonal_palette("#4F7CFF")
+    return SequenceColors(a=tones.t70, c="#34D399", g="#F59E0B", t="#F472B6")
 
 
 def sequence_color_map() -> dict[str, str]:
-    colors = SequenceColors()
+    colors = _default_sequence_colors()
     return {
         "A": colors.a,
         "C": colors.c,
@@ -27,7 +34,7 @@ def sequence_color_map() -> dict[str, str]:
 
 def create_sequence_viewer_widget():
     from PySide6.QtGui import QColor, QFont, QTextCharFormat, QSyntaxHighlighter
-    from PySide6.QtWidgets import QPlainTextEdit
+    from PySide6.QtWidgets import QGraphicsDropShadowEffect, QPlainTextEdit
 
     color_map = sequence_color_map()
 
@@ -49,11 +56,22 @@ def create_sequence_viewer_widget():
         def __init__(self) -> None:
             super().__init__()
             self.setObjectName("SequenceViewer")
-            font = QFont("Roboto Mono", 10)
+            font = QFont("JetBrains Mono", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             self.setFont(font)
             self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
             self.setPlaceholderText("Paste FASTA/sequence data here...")
             self._highlighter = SequenceHighlighter(self.document())
+            self._bloom = QGraphicsDropShadowEffect(self)
+            self._bloom.setBlurRadius(15)
+            self._bloom.setOffset(0, 0)
+            self._bloom.setColor(QColor(96, 165, 250, 180))
+            self.cursorPositionChanged.connect(self._update_bloom)
+
+        def _update_bloom(self) -> None:
+            if self.textCursor().hasSelection():
+                self.setGraphicsEffect(self._bloom)
+            else:
+                self.setGraphicsEffect(None)
 
     return SequenceViewer

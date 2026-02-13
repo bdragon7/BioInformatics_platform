@@ -139,11 +139,14 @@ Then start Spyder with `launch_spyder.bat` / `./launch_spyder.sh`.
 
 A new PySide6 workspace skeleton is included with glassmorphic styling and bioinformatics-focused layout:
 - translucent Aluminium-style window and glass panels
+- dynamic tonal palette generation (Material You compatible; fallback included)
 - 24px rounded controls and 12px data-table geometry
 - bottom floating shelf (Sequence Viewer, BLAST, 3D model, Open File)
 - high-density sequence viewer (`QPlainTextEdit` + `QSyntaxHighlighter` for A/C/G/T)
 - vertical splitter layout: sequence viewer (top) + variant table (bottom)
 - background file parsing via `QThread` to keep UI responsive
+- standard easing panel animations + spring-style completion modal
+- DNA selection “biological bloom” glow effect
 
 Launch it with:
 

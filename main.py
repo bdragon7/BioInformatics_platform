@@ -24,6 +24,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
+    try:
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
+    except Exception:
+        pass
     args = build_parser().parse_args()
     if args.helix_ui:
         return run_helix_ui()
