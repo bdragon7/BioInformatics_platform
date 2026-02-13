@@ -3,12 +3,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from ..core.r_integration import RIntegrationManager
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
 from .themes import THEMES
-from ..core.r_integration import RIntegrationManager
 
 
 def run(
@@ -19,9 +19,12 @@ def run(
 ) -> int:
     try:
         from PySide6.QtCore import Qt
+        from PySide6.QtGui import QAction, QKeySequence, QShortcut
         from PySide6.QtWidgets import (
             QApplication,
+            QComboBox,
             QDockWidget,
+            QFrame,
             QHBoxLayout,
             QLabel,
             QLineEdit,
@@ -30,9 +33,9 @@ def run(
             QMessageBox,
             QPushButton,
             QSplitter,
+            QToolBar,
             QVBoxLayout,
             QWidget,
-            QComboBox,
         )
     except Exception:
         print("PySide6 is not installed. Install with: pip install '.[gui]'")
@@ -44,6 +47,7 @@ def run(
         def __init__(self) -> None:
             super().__init__()
             self.setWindowTitle("Bioinformatics Studio")
+            self.setMinimumSize(1180, 760)
 
             self.aggregator = PluginIndexAggregator()
             self.registry = PluginRegistry(Path("config/plugins.json"))
@@ -51,63 +55,126 @@ def run(
             self.r_manager = RIntegrationManager(app_dir=Path.cwd())
             self.r_status = self.r_manager.detect_r()
 
+            self._build_toolbar()
+            self._build_shell()
+            self._build_plugin_dock()
+            self._bind_shortcuts()
+
+            self.statusBar().showMessage("Ready")
+
+            if data:
+                self.data_viewer.load_file(data)
+                self.statusBar().showMessage(f"Loaded data: {data}")
+            if workflow:
+                self.info_panel.addItem(f"Requested workflow: {workflow}")
+            if debug:
+                self.info_panel.addItem("Debug mode enabled")
+
+        def _build_toolbar(self) -> None:
+            toolbar = QToolBar("Main")
+            toolbar.setMovable(False)
+            self.addToolBar(toolbar)
+
+            import_action = QAction("Import", self)
+            import_action.triggered.connect(self._open_file_from_toolbar)
+            toolbar.addAction(import_action)
+
+            color_action = QAction("Color", self)
+            color_action.triggered.connect(self.choose_color)
+            toolbar.addAction(color_action)
+
+            plugin_action = QAction("Plugins", self)
+            plugin_action.triggered.connect(lambda: self.plugin_query.setFocus())
+            toolbar.addAction(plugin_action)
+
+            toolbar.addSeparator()
+            header = QLabel("Bioinformatics Studio")
+            header.setObjectName("AppHeading")
+            toolbar.addWidget(header)
+
+        def _build_shell(self) -> None:
             shell = QWidget(self)
             shell_layout = QVBoxLayout(shell)
+            shell_layout.setContentsMargins(10, 10, 10, 10)
+            shell_layout.setSpacing(10)
 
-            top = QHBoxLayout()
-            self.project_label = QLabel(f"Project: {project if project else 'default'}")
-            top.addWidget(self.project_label)
+            hero = QFrame()
+            hero.setObjectName("Card")
+            hero_layout = QHBoxLayout(hero)
 
-            self.r_label = QLabel(self.r_status.message)
-            self.r_label.setToolTip("Python-first mode is always available. Install R later for DESeq2/edgeR/limma.")
-            top.addWidget(self.r_label)
+            left = QVBoxLayout()
+            title = QLabel("Research Workspace")
+            title.setObjectName("SectionTitle")
+            left.addWidget(title)
+            left.addWidget(QLabel(f"Project: {project if project else 'default'}"))
+            left.addWidget(QLabel(self.r_status.message))
+            hero_layout.addLayout(left, 2)
 
+            right = QHBoxLayout()
             self.global_search = QLineEdit()
-            self.global_search.setPlaceholderText("Command/search (Ctrl+K style)")
-            self.global_search.setToolTip("Global search placeholder for actions, datasets, and workflows.")
-            top.addWidget(self.global_search)
+            self.global_search.setPlaceholderText("Search commands, files, analyses (Ctrl+K)")
+            self.global_search.setToolTip("Global quick search command bar.")
+            right.addWidget(self.global_search)
 
             self.theme_combo = QComboBox()
             self.theme_combo.addItems(list(THEMES.keys()))
             self.theme_combo.currentTextChanged.connect(self.apply_theme)
-            self.theme_combo.setToolTip("Switch visual theme instantly.")
-            top.addWidget(self.theme_combo)
+            self.theme_combo.setToolTip("Instant theme switch.")
+            right.addWidget(self.theme_combo)
 
             color_btn = QPushButton("Pick Color")
             color_btn.setToolTip("Open scientific color picker with alpha support.")
             color_btn.clicked.connect(self.choose_color)
-            top.addWidget(color_btn)
+            right.addWidget(color_btn)
 
-            shell_layout.addLayout(top)
+            hero_layout.addLayout(right, 3)
+            shell_layout.addWidget(hero)
 
             splitter = QSplitter(Qt.Horizontal)
 
             nav = QListWidget()
-            nav.addItems(["📊 Data", "🔬 Analysis", "📈 Visualizations", "📦 Plugins", "⚙️ Settings"])
-            nav.setMaximumWidth(220)
-            nav.setToolTip("Primary navigation zones")
+            nav.addItems([
+                "📊 Data",
+                "🔬 Analysis",
+                "📈 Visualizations",
+                "🧪 Microbiology",
+                "🧬 Biophysics",
+                "📦 Plugins",
+                "⚙️ Settings",
+            ])
+            nav.setMaximumWidth(240)
+            nav.currentTextChanged.connect(lambda x: self.statusBar().showMessage(f"Section: {x}", 2000))
+            nav.setCurrentRow(0)
             splitter.addWidget(nav)
 
             self.data_viewer = DataViewerWidget()
             self.data_viewer.selection_changed.connect(self._on_selection_count)
             splitter.addWidget(self.data_viewer)
 
+            side = QFrame()
+            side.setObjectName("Card")
+            side_layout = QVBoxLayout(side)
+            info_title = QLabel("Inspector")
+            info_title.setObjectName("SectionTitle")
+            side_layout.addWidget(info_title)
+
             self.info_panel = QListWidget()
-            self.info_panel.addItem("Selection summary will appear here.")
-            self.info_panel.setMaximumWidth(280)
-            splitter.addWidget(self.info_panel)
-            splitter.setSizes([180, 900, 240])
+            self.info_panel.addItem("Selection summary appears here.")
+            side_layout.addWidget(self.info_panel)
+            splitter.addWidget(side)
+            splitter.setSizes([190, 900, 280])
 
             shell_layout.addWidget(splitter)
             self.setCentralWidget(shell)
 
+        def _build_plugin_dock(self) -> None:
             plugin_dock = QDockWidget("Plugin Manager", self)
             plugin_widget = QWidget()
             plugin_layout = QVBoxLayout(plugin_widget)
 
             self.plugin_query = QLineEdit()
             self.plugin_query.setPlaceholderText("Search CRAN/Bioconductor or paste GitHub repo")
-            self.plugin_query.setToolTip("Find bioinformatics plugins. GitHub fallback is supported.")
+            self.plugin_query.setToolTip("Find bioinformatics plugins. GitHub fallback supported.")
             plugin_layout.addWidget(self.plugin_query)
 
             plugin_search_btn = QPushButton("Search Plugins")
@@ -121,15 +188,16 @@ def run(
             plugin_dock.setWidget(plugin_widget)
             self.addDockWidget(Qt.RightDockWidgetArea, plugin_dock)
 
-            self.statusBar().showMessage("Ready")
+        def _bind_shortcuts(self) -> None:
+            QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: self.global_search.setFocus())
+            QShortcut(QKeySequence("Ctrl+L"), self, activated=self._clear_info)
 
-            if data:
-                self.data_viewer.load_file(data)
-                self.statusBar().showMessage(f"Loaded data: {data}")
-            if workflow:
-                self.info_panel.addItem(f"Requested workflow: {workflow}")
-            if debug:
-                self.info_panel.addItem("Debug mode enabled")
+        def _open_file_from_toolbar(self) -> None:
+            self.data_viewer.open_csv()
+
+        def _clear_info(self) -> None:
+            self.info_panel.clear()
+            self.info_panel.addItem("Inspector cleared.")
 
         def apply_theme(self, name: str) -> None:
             theme = THEMES[name]
@@ -139,10 +207,12 @@ def run(
         def choose_color(self) -> None:
             color = pick_color(self, self.palette_store)
             if color:
-                self.info_panel.addItem(f"Picked color: {color} | recent={', '.join(self.palette_store.recent[:4])}")
+                self.info_panel.addItem(
+                    f"Picked color: {color} | recent={', '.join(self.palette_store.recent[:4])}"
+                )
 
         def _on_selection_count(self, count: int) -> None:
-            self.info_panel.addItem(f"Selected rows updated: {count}")
+            self.info_panel.addItem(f"Selected rows: {count}")
 
         def search_plugins(self) -> None:
             query = self.plugin_query.text().strip()
@@ -172,7 +242,7 @@ def run(
 
     app = QApplication(sys.argv)
     win = MainWindow()
-    win.resize(1400, 860)
+    win.resize(1440, 860)
     win.apply_theme("dark")
     win.show()
     return app.exec()

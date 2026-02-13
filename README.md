@@ -85,3 +85,12 @@ The DoE assistant is wired for **ChatGPT** or **Gemini** providers (not Claude-s
 - Gemini: set `GEMINI_API_KEY`
 
 Implemented in `src/bioplatform/llm/doe_assistant.py`.
+
+
+## Premium UI refresh
+
+The desktop UX has been upgraded with an Adobe-inspired workspace style:
+- Gradient action buttons and polished light/dark/high-contrast themes
+- Hero header card with project state and global quick-search
+- Professional toolbar + inspector layout with command shortcuts (`Ctrl+K`, `Ctrl+L`)
+- Card-based panels and refined typography for improved readability during long analysis sessions
