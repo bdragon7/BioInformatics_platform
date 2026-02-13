@@ -106,3 +106,20 @@ The Windows package is script-based (no compiled `.exe`).
 4. Launch with `run_windows_noexe.bat`.
 
 This avoids `.exe` binaries while remaining double-click runnable via batch scripts.
+
+
+## Launch with Anaconda / Miniconda
+
+If the app does not launch with system Python, use Conda:
+
+### Windows
+1. Run `scripts\setup_conda_env.bat` (creates env `bioinfostudio` by default).
+2. Launch using `launch_conda.bat`.
+
+### Linux/macOS
+1. Run `./scripts/setup_conda_env.sh`.
+2. Launch using `./launch_conda.sh`.
+
+Optional custom env name:
+- `scripts\setup_conda_env.bat myenv` then `launch_conda.bat myenv`
+- `./scripts/setup_conda_env.sh myenv` then `./launch_conda.sh myenv`

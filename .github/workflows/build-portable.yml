@@ -38,8 +38,8 @@ jobs:
       - name: Build Linux script package
         run: |
           mkdir -p BioinformaticsStudio-linux-script
-          cp -r src tests BioinformaticsStudio-linux-script/
-          cp main.py pyproject.toml README.md launch_bioinfostudio.sh BioinformaticsStudio-linux-script/
+          cp -r src tests scripts BioinformaticsStudio-linux-script/
+          cp main.py pyproject.toml README.md launch_bioinfostudio.sh launch_conda.sh BioinformaticsStudio-linux-script/
           tar -czf BioinformaticsStudio-linux-script.tar.gz -C BioinformaticsStudio-linux-script .
 
       - name: Upload linux artifact
