@@ -50,3 +50,8 @@ launch_bioinfostudio.bat --help
 ## UI/UX plan
 
 See `UI_UX_IMPLEMENTATION_PLAN.md` for detailed widget designs, color palette specs, icon requirements, and UI/UX testing strategy.
+
+
+## Real-world enhancements plan
+
+See `REAL_WORLD_ENHANCEMENT_PLAN.md` for detailed implementation plans covering optional R integration, QC algorithms, metadata schema, and error-prevention architecture.

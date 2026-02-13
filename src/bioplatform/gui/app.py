@@ -8,6 +8,7 @@ from ..plugins.manager import PluginRegistry
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
 from .themes import THEMES
+from ..core.r_integration import RIntegrationManager
 
 
 def run(
@@ -47,6 +48,8 @@ def run(
             self.aggregator = PluginIndexAggregator()
             self.registry = PluginRegistry(Path("config/plugins.json"))
             self.palette_store = PaletteStore()
+            self.r_manager = RIntegrationManager(app_dir=Path.cwd())
+            self.r_status = self.r_manager.detect_r()
 
             shell = QWidget(self)
             shell_layout = QVBoxLayout(shell)
@@ -54,6 +57,10 @@ def run(
             top = QHBoxLayout()
             self.project_label = QLabel(f"Project: {project if project else 'default'}")
             top.addWidget(self.project_label)
+
+            self.r_label = QLabel(self.r_status.message)
+            self.r_label.setToolTip("Python-first mode is always available. Install R later for DESeq2/edgeR/limma.")
+            top.addWidget(self.r_label)
 
             self.global_search = QLineEdit()
             self.global_search.setPlaceholderText("Command/search (Ctrl+K style)")
