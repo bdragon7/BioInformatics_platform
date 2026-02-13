@@ -133,3 +133,20 @@ If corporate policy blocks Conda activation, use:
 - Linux/macOS: `./scripts/setup_spyder_env.sh`
 
 Then start Spyder with `launch_spyder.bat` / `./launch_spyder.sh`.
+
+
+## Helix-UI (ChromeOS/Aluminium aesthetic)
+
+A new PySide6 workspace skeleton is included with glassmorphic styling and bioinformatics-focused layout:
+- translucent Aluminium-style window and glass panels
+- 24px rounded controls and 12px data-table geometry
+- bottom floating shelf (Sequence Viewer, BLAST, 3D model, Open File)
+- high-density sequence viewer (`QPlainTextEdit` + `QSyntaxHighlighter` for A/C/G/T)
+- vertical splitter layout: sequence viewer (top) + variant table (bottom)
+- background file parsing via `QThread` to keep UI responsive
+
+Launch it with:
+
+```bash
+python main.py --helix-ui
+```

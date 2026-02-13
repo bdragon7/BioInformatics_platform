@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from bioplatform.gui.app import run
+from bioplatform.gui.helix_main_window import run_helix_ui
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,11 +19,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data", type=Path, help="Import a data file on launch")
     parser.add_argument("--workflow", type=str, help="Run a saved workflow by name")
     parser.add_argument("--debug", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--helix-ui", action="store_true", help="Launch Helix-UI glassmorphic workspace")
     return parser
 
 
 def main() -> int:
     args = build_parser().parse_args()
+    if args.helix_ui:
+        return run_helix_ui()
     return run(project=args.project, data=args.data, workflow=args.workflow, debug=args.debug)
 
 
