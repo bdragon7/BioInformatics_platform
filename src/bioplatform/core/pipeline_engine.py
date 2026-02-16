@@ -8,6 +8,7 @@ from typing import Callable
 from .analysis_library import AnalysisLibrary
 from .data_cleaning import lof_outliers, smart_sanitize_growth_values
 from .runtime import HardwareAbstractionLayer
+from ..visualization.editor_state import GraphEditorState, GraphElement
 
 
 @dataclass(slots=True)
@@ -25,6 +26,8 @@ class PythonRPipelineEngine:
     def __init__(self, analysis_library: AnalysisLibrary | None = None) -> None:
         self.analysis_library = analysis_library or AnalysisLibrary()
         self.hal = HardwareAbstractionLayer()
+        self.graph_editor_state = GraphEditorState()
+        self.graph_editor_state.upsert(GraphElement(id="pipeline-series", kind="line", properties={"line_width": 2, "symbol": "o"}))
 
     def run_growth_pipeline(self, raw_values: list[float | None]) -> PipelineResult:
         sanitized = smart_sanitize_growth_values(raw_values)
@@ -32,6 +35,7 @@ class PythonRPipelineEngine:
 
         stats, backend = self._compute_stats(cleaned)
         outliers = self._accelerated_outliers(cleaned)
+        self.graph_editor_state.set_property("pipeline-series", "last_outlier_count", len(outliers))
         fig = self._build_editable_figure(cleaned, outliers)
         return PipelineResult(cleaned=cleaned, stats=stats, outliers=outliers, figure=fig, backend=backend)
 
@@ -66,6 +70,18 @@ class PythonRPipelineEngine:
                     finally:
                         pending = None
         return results
+
+
+    def interactive_plot_payload(self, cleaned: list[float], outliers: list[int]) -> dict[str, object]:
+        """Return Canvas-X payload linked to GraphEditorState for undo/redo."""
+        style = self.graph_editor_state.elements["pipeline-series"].properties
+        return {
+            "x": list(range(len(cleaned))),
+            "y": cleaned,
+            "outliers": outliers,
+            "style": dict(style),
+            "editor_undo_depth": len(self.graph_editor_state._undo),
+        }
 
     def export_figure_high_quality(self, figure: object | None, output_base: Path) -> dict[str, str]:
         if figure is None:

@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, median
 
+from ..visualization.editor_state import GraphEditorState, GraphElement
+from .interactive_plot import create_interactive_plot_widget
+
 
 def _col_to_index(label: str) -> int:
     label = label.strip().upper()
@@ -181,6 +184,7 @@ def create_data_viewer_widget():
 
     class CsvTableModel(qt.QAbstractTableModel):
         data_edited = qt.Signal(int)
+        data_edited_point = qt.Signal(int, int, str)
 
         def __init__(self) -> None:
             super().__init__()
@@ -236,6 +240,7 @@ def create_data_viewer_widget():
             bottom_right = self.index(max(len(self.rows) - 1, 0), max(len(self.headers) - 1, 0)) if self.rows and self.headers else index
             self.dataChanged.emit(top_left, bottom_right, [qt.Qt.DisplayRole, qt.Qt.EditRole])
             self.data_edited.emit(len(self.undo_stack))
+            self.data_edited_point.emit(index.row(), index.column(), new)
             return True
 
         def flags(self, index):  # type: ignore[override]
@@ -342,6 +347,15 @@ def create_data_viewer_widget():
             self.table.horizontalHeader().setToolTip("Column stats available by selecting a column.")
             root.addWidget(self.table)
 
+            self.graph_editor_state = GraphEditorState()
+            self.graph_editor_state.upsert(GraphElement(id="series-main", kind="line", properties={"line_width": 2, "color": "#38BDF8"}))
+            InteractivePlotWidget = create_interactive_plot_widget()
+            self.plot_widget = InteractivePlotWidget() if InteractivePlotWidget is not None else None
+            if self.plot_widget is not None:
+                root.addWidget(self.plot_widget)
+                self.model.data_edited_point.connect(self.plot_widget.on_model_data_edited)
+                self.plot_widget.pointEdited.connect(self._edit_from_plot)
+
             bottom = qt.QHBoxLayout()
             self.selection_label = qt.QLabel("Selected rows: 0")
             bottom.addWidget(self.selection_label)
@@ -374,6 +388,11 @@ def create_data_viewer_widget():
                         row.append(self.proxy.data(index, qt.Qt.DisplayRole))
                     writer.writerow(row)
 
+        def _edit_from_plot(self, row: int, col: int, value: str) -> None:
+            idx = self.model.index(row, col)
+            self.model.setData(idx, value)
+            self.graph_editor_state.set_property("series-main", "last_edited_row", row)
+
         def _emit_selection(self, *_args) -> None:
             count = len(self.table.selectionModel().selectedRows())
             self.selection_label.setText(f"Selected rows: {count}")
@@ -386,5 +405,13 @@ def create_data_viewer_widget():
         def load_file(self, path: Path) -> None:
             if path.suffix.lower() == ".csv":
                 self.model.load_csv(path)
+                if self.plot_widget is not None:
+                    values = []
+                    for row in self.model.rows:
+                        try:
+                            values.append(float(row[0]))
+                        except Exception:
+                            values.append(0.0)
+                    self.plot_widget.set_values(values)
 
     return DataViewerWidget
