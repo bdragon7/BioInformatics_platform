@@ -77,6 +77,17 @@ How to get it from GitHub:
 If you want persistent download links, create a GitHub Release and attach the generated artifacts.
 
 
+## IsoDesign_Ultra scaffold (headless autonomous engine blueprint)
+
+A new Python 3.11+ compatible scaffold named `IsoDesign_Ultra/` is included with core modules:
+- `core.kernel`: protocol-based plugin loading for Python/R plugins, metadata validation, hot-reload watcher hook, and health checks (R_HOME + RDKit + rpy2)
+- `core.orchestrator`: dependency-aware execution orchestration using plugin metadata
+- `engine.doe`: adaptive DoE scaffold (`AutoDoE`) with pluggable BoTorch/Ax path and robust fallback suggestions
+- `chem.informatics`: SMILES feature tensor conversion and formulation validator using Green Solubility Index + Hansen-distance approximation
+- `data.bridge`: Arrow-backed `DataBuffer` and `@r_interop` decorator for Python-R bridge conversion behavior
+
+This is structured as a headless autonomy foundation and can be extended by dropping Python/R plugin files under `IsoDesign_Ultra/plugins/`.
+
 ## AI DoE assistant providers
 
 ## Chemical/Formulation Toolbox
