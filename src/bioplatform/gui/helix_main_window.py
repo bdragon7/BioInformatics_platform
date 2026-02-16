@@ -6,6 +6,7 @@ import subprocess
 from ..llm.doe_assistant import DoEAssistant
 from .helix_theme import build_helix_qss
 from .sequence_viewer import create_sequence_viewer_widget
+from .structure_viewport import open_structure_viewport
 
 
 def run_helix_ui() -> int:
@@ -300,7 +301,7 @@ def run_helix_ui() -> int:
             shelf.addAction(blast_action)
 
             model_action = QAction("3D Protein Model", self)
-            model_action.triggered.connect(lambda: self.statusBar().showMessage("3D viewer placeholder", 2000))
+            model_action.triggered.connect(self.open_apex_structure_viewport)
             shelf.addAction(model_action)
 
             open_action = QAction("Open FASTA/VCF", self)
@@ -310,6 +311,24 @@ def run_helix_ui() -> int:
             gemma_action = QAction("Gemma Local", self)
             gemma_action.triggered.connect(self._run_gemma_local)
             shelf.addAction(gemma_action)
+
+
+        def open_apex_structure_viewport(self) -> None:
+            self.statusBar().showMessage("Opening Apex Structural Intelligence…", 2000)
+            open_structure_viewport(self, on_residue_row=self._highlight_variant_row)
+
+        def _highlight_variant_row(self, row: int) -> None:
+            model = self.variant_table.model()
+            if model is None:
+                self.statusBar().showMessage(f"Residue row requested: {row}", 2000)
+                return
+            if row < 0 or row >= model.rowCount():
+                self.statusBar().showMessage(f"Residue row out of range: {row}", 3000)
+                return
+            idx = model.index(row, 0)
+            self.variant_table.selectRow(row)
+            self.variant_table.scrollTo(idx)
+            self.statusBar().showMessage(f"Structural sync: highlighted row {row}", 2500)
 
         def _bind_shortcuts(self) -> None:
             QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: self.search.setFocus())
