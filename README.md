@@ -92,6 +92,9 @@ Capabilities:
 - incompatibility checks (e.g., cationic/anionic conflicts, oxidizer/acid risks)
 - lightweight **QSAR-style** heuristic notes for unknown-risk screening
 - industrial guidance and suggested **DoE factors** by target domain
+- optional DoE toggles for **soiling** and **hard water** variables (included only when checked)
+- target organism support for **E. coli** and **S. aureus** in DoE planning
+- a compact DoE interaction map + run preview for rapid experimental design iteration
 - collaborative unknown-entry mode: if a chemical is not found locally, the report asks for SMILES + concentration so the workflow can continue with estimated QSAR guidance
 
 Implemented in `src/bioplatform/core/chemical_toolbox.py` and exposed in `src/bioplatform/gui/app.py`.

@@ -641,6 +641,15 @@ def run(
             target_combo.addItems(["cosmetics", "cleaning", "disinfection", "antimicrobial", "antiviral", "antifungal"])
             layout.addWidget(target_combo)
 
+            organism_combo = QComboBox()
+            organism_combo.addItems(["None", "E. coli", "S. aureus"])
+            layout.addWidget(organism_combo)
+
+            include_soiling_cb = QCheckBox("Include soiling (organic load) as DoE variable")
+            include_hard_water_cb = QCheckBox("Include hard water as DoE variable")
+            layout.addWidget(include_soiling_cb)
+            layout.addWidget(include_hard_water_cb)
+
             output = QPlainTextEdit()
             output.setReadOnly(True)
             layout.addWidget(output)
@@ -653,12 +662,25 @@ def run(
                     output.setPlainText("Enter at least one chemical name or SMILES.")
                     return
                 target = target_combo.currentText()
+                organism = organism_combo.currentText()
+                organism_value = None if organism == "None" else organism
+                include_soiling = include_soiling_cb.isChecked()
+                include_hard_water = include_hard_water_cb.isChecked()
+
                 report = self.chemical_toolbox.analyze_formulation(raw, target=target)  # type: ignore[arg-type]
-                factors = self.chemical_toolbox.suggest_doe_factors(target)  # type: ignore[arg-type]
+                doe_plan = self.chemical_toolbox.build_doe_plan(  # type: ignore[arg-type]
+                    target,
+                    include_soiling=include_soiling,
+                    include_hard_water=include_hard_water,
+                    target_organism=organism_value,
+                )
                 lines = [
                     "Formulation report",
                     f"Found: {', '.join(r.name for r in report.found) if report.found else 'none'}",
                     f"Unknown: {', '.join(report.unknown) if report.unknown else 'none'}",
+                    f"Target organism: {organism_value or 'not selected'}",
+                    f"Soiling variable included: {'yes' if include_soiling else 'no'}",
+                    f"Hard-water variable included: {'yes' if include_hard_water else 'no'}",
                     "",
                     "Incompatibilities:",
                     *([f"- {x}" for x in report.incompatibilities] or ["- none detected"]),
@@ -670,7 +692,13 @@ def run(
                     *[f"- {x}" for x in report.industrial_guidance],
                     "",
                     "Suggested DoE factors:",
-                    *[f"- {f}" for f in factors],
+                    *[f"- {f}" for f in doe_plan.factors],
+                    "",
+                    "DoE runs preview:",
+                    *([f"- {run}" for run in doe_plan.runs_preview] or ["- n/a"]),
+                    "",
+                    "DoE interaction map:",
+                    doe_plan.visual_map,
                 ]
                 output.setPlainText("\n".join(lines))
 

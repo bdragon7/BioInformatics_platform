@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import product
 from typing import Literal
 
 
@@ -24,6 +25,15 @@ class ChemicalRecord:
     applications: tuple[ApplicationDomain, ...]
     notes: str
 
+
+
+
+@dataclass(slots=True)
+class DoEPlan:
+    factors: list[str]
+    level_table: dict[str, list[str]]
+    runs_preview: list[dict[str, str]]
+    visual_map: str
 
 @dataclass(slots=True)
 class FormulationRiskReport:
@@ -232,7 +242,13 @@ class ChemicalToolbox:
             )
         return guidance
 
-    def suggest_doe_factors(self, target: ApplicationDomain) -> list[str]:
+    def suggest_doe_factors(
+        self,
+        target: ApplicationDomain,
+        include_soiling: bool = False,
+        include_hard_water: bool = False,
+        target_organism: str | None = None,
+    ) -> list[str]:
         common = [
             "pH",
             "active_concentration",
@@ -240,10 +256,84 @@ class ChemicalToolbox:
             "contact_time",
             "ionic_strength",
         ]
+        extras: list[str] = []
         if target == "cosmetics":
-            return common + ["skin_feel_score", "foam_height", "preservative_system"]
+            extras.extend(["skin_feel_score", "foam_height", "preservative_system"])
         if target == "cleaning":
-            return common + ["soil_load", "water_hardness", "rinse_cycles"]
+            extras.extend(["rinse_cycles"]) 
         if target in {"disinfection", "antimicrobial", "antiviral", "antifungal"}:
-            return common + ["microbial_load", "organic_interference", "surface_type"]
-        return common
+            extras.extend(["microbial_load", "organic_interference", "surface_type"])
+
+        if include_soiling:
+            extras.append("soil_load")
+        if include_hard_water:
+            extras.append("water_hardness")
+        if target_organism and target_organism.lower() in {"e. coli", "s. aureus"}:
+            extras.append("target_organism")
+
+        deduped: list[str] = []
+        for factor in [*common, *extras]:
+            if factor not in deduped:
+                deduped.append(factor)
+        return deduped
+
+    def build_doe_plan(
+        self,
+        target: ApplicationDomain,
+        include_soiling: bool = False,
+        include_hard_water: bool = False,
+        target_organism: str | None = None,
+    ) -> DoEPlan:
+        factors = self.suggest_doe_factors(
+            target,
+            include_soiling=include_soiling,
+            include_hard_water=include_hard_water,
+            target_organism=target_organism,
+        )
+        level_table: dict[str, list[str]] = {
+            "pH": ["low", "mid", "high"],
+            "active_concentration": ["0.25x", "1x", "2x"],
+            "temperature": ["ambient", "30C", "45C"],
+            "contact_time": ["1 min", "5 min", "10 min"],
+            "ionic_strength": ["low", "mid"],
+            "rinse_cycles": ["1", "3"],
+            "soil_load": ["none", "light", "heavy"],
+            "water_hardness": ["soft", "moderate", "hard"],
+            "microbial_load": ["1e5", "1e6", "1e7 CFU/mL"],
+            "organic_interference": ["0%", "1% BSA", "5% serum"],
+            "surface_type": ["steel", "polymer", "glass"],
+            "skin_feel_score": ["panel-low", "panel-high"],
+            "foam_height": ["low", "high"],
+            "preservative_system": ["A", "B"],
+            "target_organism": [target_organism or "E. coli"],
+        }
+
+        preview_axes = [f for f in factors if f in {"pH", "active_concentration", "contact_time", "soil_load", "water_hardness", "target_organism"}][:3]
+        runs_preview: list[dict[str, str]] = []
+        if preview_axes:
+            levels = [level_table[a][:2] for a in preview_axes]
+            for combo in list(product(*levels))[:8]:
+                runs_preview.append(dict(zip(preview_axes, combo)))
+
+        visual_map = self.render_doe_visual_map(factors)
+        return DoEPlan(factors=factors, level_table={k: level_table[k] for k in factors if k in level_table}, runs_preview=runs_preview, visual_map=visual_map)
+
+    @staticmethod
+    def render_doe_visual_map(factors: list[str]) -> str:
+        if not factors:
+            return "(no factors selected)"
+        top = factors[:6]
+        header = "      " + " ".join(f"{i+1:>2}" for i in range(len(top)))
+        rows = [header]
+        for i, name in enumerate(top):
+            cells = []
+            for j in range(len(top)):
+                if i == j:
+                    cells.append("◉ ")
+                elif i < j:
+                    cells.append("● ")
+                else:
+                    cells.append("· ")
+            rows.append(f"{i+1:>2} {name[:16]:<16}" + "".join(cells))
+        legend = "Legend: ◉ self-factor | ● interaction candidate | · mirrored cell"
+        return "\n".join([*rows, legend])
