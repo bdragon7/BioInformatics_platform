@@ -77,18 +77,6 @@ How to get it from GitHub:
 If you want persistent download links, create a GitHub Release and attach the generated artifacts.
 
 
-## Open-source benchmark report
-
-A benchmark snapshot comparing BioPlatform core routines against strongest available open-source implementations in the current environment is published in:
-- `BENCHMARK_REPORT.md`
-- `benchmark_results.json`
-
-To regenerate locally:
-
-```bash
-python scripts/benchmark_open_source.py
-```
-
 ## AI DoE assistant providers
 
 ## Chemical/Formulation Toolbox
