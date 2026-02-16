@@ -29,6 +29,29 @@ jobs:
           path: BioinformaticsStudio-windows-noexe.zip
           if-no-files-found: error
 
+
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build windows executable package
+        shell: pwsh
+        run: ./scripts/build_windows_portable.ps1
+
+      - name: Upload windows executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-windows-exe
+          path: BioinformaticsStudio-portable-windows.zip
+          if-no-files-found: error
+
   build-linux:
     runs-on: ubuntu-latest
     steps:

@@ -108,6 +108,21 @@ The Windows package is script-based (no compiled `.exe`).
 This avoids `.exe` binaries while remaining double-click runnable via batch scripts.
 
 
+
+## Windows executable alternative (.exe)
+
+A compiled Windows package is also available when a native executable is preferred:
+
+1. Download `BioinformaticsStudio-windows-exe` artifact from GitHub Actions (file: `BioinformaticsStudio-portable-windows.zip`).
+2. Extract the zip.
+3. Start the app using `BioinformaticsStudio.exe` from the extracted folder.
+
+To build locally on Windows:
+
+```powershell
+./scripts/build_windows_portable.ps1
+```
+
 ## Launch with Anaconda / Miniconda
 
 If the app does not launch with system Python, use Conda:
