@@ -153,3 +153,29 @@ Launch it with:
 ```bash
 python main.py --helix-ui
 ```
+
+## Aluminium-Bio plugin architecture
+
+The desktop shell now includes the first pass of a hot-swappable local plugin runtime:
+
+- Local plugin directory convention: `plugins/<plugin_name>/manifest.json` + `plugins/<plugin_name>/plugin.py`
+- `plugin.py` should expose `Plugin` deriving from `bioplatform.plugins.BioPlugin`
+- Enable/disable states are persisted to `config/plugins_enabled.json`
+- UI productivity features include `Ctrl+K` Command Palette, drag-and-drop file suggestions, and a Plugin Marketplace dialog
+
+Minimal plugin sketch:
+
+```python
+from bioplatform.plugins import BioPlugin
+
+class Plugin(BioPlugin):
+    plugin_id = "demo.plugin"
+    plugin_name = "Demo Plugin"
+
+    def register_ui(self, context):
+        return {"title": context.app_name}
+
+    def execute_logic(self, payload):
+        return {"ok": True}
+```
+

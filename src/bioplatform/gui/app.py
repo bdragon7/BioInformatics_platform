@@ -6,6 +6,7 @@ from pathlib import Path
 from ..core.r_integration import RIntegrationManager
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
+from ..plugins.runtime import LocalPluginRuntime
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
 from .themes import THEMES
@@ -23,12 +24,15 @@ def run(
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
+            QDialog,
             QDockWidget,
+            QFileDialog,
             QFrame,
             QHBoxLayout,
             QLabel,
             QLineEdit,
             QListWidget,
+            QListWidgetItem,
             QMainWindow,
             QMessageBox,
             QPushButton,
@@ -48,9 +52,11 @@ def run(
             super().__init__()
             self.setWindowTitle("Bioinformatics Studio")
             self.setMinimumSize(1180, 760)
+            self.setAcceptDrops(True)
 
             self.aggregator = PluginIndexAggregator()
             self.registry = PluginRegistry(Path("config/plugins.json"))
+            self.runtime = LocalPluginRuntime(Path("plugins"), Path("config/plugins_enabled.json"))
             self.palette_store = PaletteStore()
             self.r_manager = RIntegrationManager(app_dir=Path.cwd())
             self.r_status = self.r_manager.detect_r()
@@ -84,7 +90,7 @@ def run(
             toolbar.addAction(color_action)
 
             plugin_action = QAction("Plugins", self)
-            plugin_action.triggered.connect(lambda: self.plugin_query.setFocus())
+            plugin_action.triggered.connect(self.show_plugin_marketplace)
             toolbar.addAction(plugin_action)
 
             toolbar.addSeparator()
@@ -189,11 +195,105 @@ def run(
             self.addDockWidget(Qt.RightDockWidgetArea, plugin_dock)
 
         def _bind_shortcuts(self) -> None:
-            QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: self.global_search.setFocus())
+            QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_command_palette)
             QShortcut(QKeySequence("Ctrl+L"), self, activated=self._clear_info)
 
+        def open_command_palette(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Command Palette")
+            layout = QVBoxLayout(dlg)
+            search = QLineEdit()
+            search.setPlaceholderText("Type a command...")
+            layout.addWidget(search)
+            lst = QListWidget()
+            commands = [
+                "Import Data",
+                "Open Plugin Marketplace",
+                "Switch Theme",
+                "Open Local FASTA",
+                "Run QC Checks",
+            ]
+            for cmd in commands:
+                lst.addItem(cmd)
+            layout.addWidget(lst)
+
+            def do_filter(txt: str) -> None:
+                for i in range(lst.count()):
+                    it = lst.item(i)
+                    it.setHidden(txt.lower() not in it.text().lower())
+
+            search.textChanged.connect(do_filter)
+            search.setFocus()
+            dlg.resize(420, 320)
+            dlg.exec()
+
+        def dragEnterEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+
+        def dropEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            urls = event.mimeData().urls()
+            if not urls:
+                return
+            path = Path(urls[0].toLocalFile())
+            self.intelligent_analysis_suggestion(path)
+
+        def intelligent_analysis_suggestion(self, path: Path) -> None:
+            ext = path.suffix.lower()
+            if ext in {".fasta", ".fa", ".fastq", ".fq"}:
+                suggestion = "Sequence Viewer + ORF finder + GC profile"
+            elif ext in {".vcf", ".bcf"}:
+                suggestion = "Variant table + filtration + annotation"
+            elif ext in {".pdb", ".cif"}:
+                suggestion = "3D protein model + binding-site analysis"
+            else:
+                suggestion = "General import + data profiling"
+            QMessageBox.information(
+                self,
+                "Intelligent Analysis",
+                f"Detected file: {path.name}\nRecommended workflow: {suggestion}",
+            )
+
+        def show_plugin_marketplace(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Plugin Marketplace")
+            layout = QVBoxLayout(dlg)
+            label = QLabel("Enable/disable hot-swappable modules")
+            layout.addWidget(label)
+            items = QListWidget()
+            plugins = self.runtime.list_plugins()
+            for plugin in plugins:
+                it = QListWidgetItem(f"{plugin.name} ({plugin.plugin_id}) - {plugin.description}")
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(Qt.CheckState.Checked if plugin.enabled else Qt.CheckState.Unchecked)
+                items.addItem(it)
+            layout.addWidget(items)
+
+            def persist_states() -> None:
+                for i, plugin in enumerate(plugins):
+                    enabled = items.item(i).checkState() == Qt.CheckState.Checked
+                    self.runtime.set_enabled(plugin.plugin_id, enabled)
+                dlg.accept()
+
+            save_btn = QPushButton("Save")
+            save_btn.clicked.connect(persist_states)
+            layout.addWidget(save_btn)
+            dlg.resize(680, 420)
+            dlg.exec()
+
         def _open_file_from_toolbar(self) -> None:
-            self.data_viewer.open_csv()
+            file_name, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import data",
+                filter="Bio Files (*.csv *.tsv *.xlsx *.fasta *.fa *.fastq *.fq *.vcf *.pdb *.cif);;All Files (*.*)",
+            )
+            if not file_name:
+                return
+            path = Path(file_name)
+            if path.suffix.lower() == ".csv":
+                self.data_viewer.load_file(path)
+            else:
+                self.intelligent_analysis_suggestion(path)
 
         def _clear_info(self) -> None:
             self.info_panel.clear()
