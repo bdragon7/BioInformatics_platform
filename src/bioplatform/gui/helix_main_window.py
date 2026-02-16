@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 
+from ..llm.doe_assistant import DoEAssistant
 from .helix_theme import build_helix_qss
 from .sequence_viewer import create_sequence_viewer_widget
 
@@ -27,6 +28,8 @@ def run_helix_ui() -> int:
         QToolBar,
         QVBoxLayout,
         QWidget,
+        QPushButton,
+        QPlainTextEdit,
     )
 
     class ParseWorker(QThread):
@@ -41,6 +44,27 @@ def run_helix_ui() -> int:
             try:
                 text = self.file_path.read_text(encoding="utf-8", errors="replace")
                 self.loaded.emit(text)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+
+    class GemmaStreamWorker(QThread):
+        token = Signal(str)
+        finished_text = Signal(str)
+        failed = Signal(str)
+
+        def __init__(self, assistant: DoEAssistant, prompt: str, pipeline_stats: dict[str, float] | None = None) -> None:
+            super().__init__()
+            self.assistant = assistant
+            self.prompt = prompt
+            self.pipeline_stats = pipeline_stats
+
+        def run(self) -> None:  # type: ignore[override]
+            try:
+                chunks: list[str] = []
+                for tok in self.assistant.stream_chat(self.prompt, pipeline_stats=self.pipeline_stats):
+                    chunks.append(tok)
+                    self.token.emit(tok)
+                self.finished_text.emit("".join(chunks))
             except Exception as exc:
                 self.failed.emit(str(exc))
 
@@ -59,6 +83,8 @@ def run_helix_ui() -> int:
             self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
             self._worker: ParseWorker | None = None
+            self._gemma_worker: GemmaStreamWorker | None = None
+            self._gemma_assistant = DoEAssistant(provider="local")
             self._build_ui()
             self._build_shelf()
             self._bind_shortcuts()
@@ -80,6 +106,19 @@ def run_helix_ui() -> int:
             self.search = QLineEdit()
             self.search.setPlaceholderText("Global search (Ctrl+K): genes, files, records")
             launcher_layout.addWidget(self.search, 1)
+
+            self.gemma_prompt = QLineEdit()
+            self.gemma_prompt.setPlaceholderText("Ask Gemma local (2B/7B), e.g. explain noisy fit")
+            launcher_layout.addWidget(self.gemma_prompt, 1)
+
+            self.gemma_btn = QPushButton("Gemma-Local")
+            self.gemma_btn.clicked.connect(self._run_gemma_local)
+            launcher_layout.addWidget(self.gemma_btn)
+
+            self.model_manager_btn = QPushButton("Model Manager")
+            self.model_manager_btn.clicked.connect(self._open_model_manager)
+            launcher_layout.addWidget(self.model_manager_btn)
+
             root_layout.addWidget(self.launcher_row)
 
             workbench = QFrame()
@@ -100,6 +139,49 @@ def run_helix_ui() -> int:
             wb_layout.addWidget(split)
             root_layout.addWidget(workbench)
             self.setCentralWidget(root)
+
+        def _open_model_manager(self) -> None:
+            status = self._gemma_assistant.local_models_status()
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Gemma Model Manager")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Local model status"))
+            text = QPlainTextEdit()
+            text.setReadOnly(True)
+            text.setPlainText(
+                "\n".join(
+                    [
+                        f"available: {status.get('available')}",
+                        f"active: {status.get('active')}",
+                        f"gemma_2b: {status.get('gemma_2b')}",
+                        f"gemma_7b: {status.get('gemma_7b')}",
+                        "default strategy: use both (2B for speed, 7B for depth).",
+                    ]
+                )
+            )
+            layout.addWidget(text)
+            dlg.resize(480, 280)
+            dlg.exec()
+
+        def _run_gemma_local(self) -> None:
+            prompt = self.gemma_prompt.text().strip()
+            if not prompt:
+                self.statusBar().showMessage("Enter a Gemma prompt first.", 2500)
+                return
+
+            self.sequence_view.clear()
+            self.sequence_view.setPlainText("[Gemma-Local] Thinking...\n")
+            stats = {"mean": 0.0, "stddev": 0.0, "outliers": 0.0}
+
+            self._gemma_worker = GemmaStreamWorker(self._gemma_assistant, prompt, pipeline_stats=stats)
+            self._gemma_worker.token.connect(self._ghost_type_token)
+            self._gemma_worker.finished_text.connect(lambda _txt: self.statusBar().showMessage("Gemma response complete", 2500))
+            self._gemma_worker.failed.connect(lambda msg: self.statusBar().showMessage(f"Gemma failed: {msg}", 5000))
+            self._gemma_worker.start()
+
+        def _ghost_type_token(self, token: str) -> None:
+            # Ghost-type animation scaffold: streamed token appends in micro-bursts.
+            self.sequence_view.insertPlainText(token)
 
         def _build_nexus_hud(self) -> None:
             self.hud = QFrame(self)
@@ -224,6 +306,10 @@ def run_helix_ui() -> int:
             open_action = QAction("Open FASTA/VCF", self)
             open_action.triggered.connect(self.open_sequence_file)
             shelf.addAction(open_action)
+
+            gemma_action = QAction("Gemma Local", self)
+            gemma_action.triggered.connect(self._run_gemma_local)
+            shelf.addAction(gemma_action)
 
         def _bind_shortcuts(self) -> None:
             QShortcut(QKeySequence("Ctrl+K"), self, activated=lambda: self.search.setFocus())

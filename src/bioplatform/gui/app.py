@@ -587,8 +587,8 @@ def run(
             dlg.exec()
 
         def _build_ai_assistant(self) -> DoEAssistant:
-            provider = self.preferences.ai_provider if self.preferences.ai_provider in {"chatgpt", "gemini"} else "chatgpt"
-            api_key = self.preferences.openai_api_key if provider == "chatgpt" else self.preferences.gemini_api_key
+            provider = self.preferences.ai_provider if self.preferences.ai_provider in {"chatgpt", "gemini", "local"} else "chatgpt"
+            api_key = self.preferences.openai_api_key if provider == "chatgpt" else self.preferences.gemini_api_key if provider == "gemini" else None
             return DoEAssistant(provider=provider, api_key=api_key or None)
 
         def _local_ai_suggestion(self, prompt: str) -> str:
@@ -609,7 +609,7 @@ def run(
 
         def open_ai_assistant(self) -> None:
             dlg = QDialog(self)
-            dlg.setWindowTitle("AI Assistant (ChatGPT/Gemini)")
+            dlg.setWindowTitle("AI Assistant (ChatGPT/Gemini/Gemma-Local)")
             layout = QVBoxLayout(dlg)
             layout.addWidget(QLabel("Ask for workflow suggestions or execute an automated process."))
 
@@ -806,8 +806,8 @@ def run(
             project_root_edit = QLineEdit(prefs.project_root)
             output_dir_edit = QLineEdit(prefs.output_dir)
             provider_combo = QComboBox()
-            provider_combo.addItems(["chatgpt", "gemini"])
-            provider_combo.setCurrentText(prefs.ai_provider if prefs.ai_provider in {"chatgpt", "gemini"} else "chatgpt")
+            provider_combo.addItems(["chatgpt", "gemini", "local"])
+            provider_combo.setCurrentText(prefs.ai_provider if prefs.ai_provider in {"chatgpt", "gemini", "local"} else "chatgpt")
             openai_key_edit = QLineEdit(prefs.openai_api_key)
             openai_key_edit.setEchoMode(QLineEdit.Password)
             openai_key_edit.setPlaceholderText("OpenAI API key")
