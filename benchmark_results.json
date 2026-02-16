@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-02-16T18:04:21.037901+00:00",
+  "python": "3.10.19",
+  "platform": "Linux-6.12.47-x86_64-with-glibc2.39",
+  "availability": {
+    "numpy": false,
+    "pandas": false,
+    "sklearn": false
+  },
+  "rows": [
+    {
+      "category": "statistics",
+      "function": "mean",
+      "implementation": "BioPlatform",
+      "seconds": 0.665117148999343,
+      "relative_to_fastest": 1.1331960383585742,
+      "notes": ""
+    },
+    {
+      "category": "statistics",
+      "function": "mean",
+      "implementation": "stdlib.statistics.mean",
+      "seconds": 0.5869391759988503,
+      "relative_to_fastest": 1.0,
+      "notes": ""
+    },
+    {
+      "category": "statistics",
+      "function": "median",
+      "implementation": "BioPlatform",
+      "seconds": 0.02182623299995612,
+      "relative_to_fastest": 1.001360350933012,
+      "notes": ""
+    },
+    {
+      "category": "statistics",
+      "function": "median",
+      "implementation": "stdlib.statistics.median",
+      "seconds": 0.021796581999296905,
+      "relative_to_fastest": 1.0,
+      "notes": ""
+    },
+    {
+      "category": "statistics",
+      "function": "stddev",
+      "implementation": "BioPlatform",
+      "seconds": 0.10297736299980897,
+      "relative_to_fastest": 1.0,
+      "notes": ""
+    },
+    {
+      "category": "data_cleaning",
+      "function": "growth_sanitize",
+      "implementation": "BioPlatform.smart_sanitize_growth_values",
+      "seconds": 0.007325713999307482,
+      "relative_to_fastest": 1.0,
+      "notes": ""
+    },
+    {
+      "category": "outliers",
+      "function": "lof",
+      "implementation": "BioPlatform.lof_outliers",
+      "seconds": 0.029488799000318977,
+      "relative_to_fastest": 1.0,
+      "notes": ""
+    }
+  ]
+}
