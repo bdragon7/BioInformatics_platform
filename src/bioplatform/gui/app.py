@@ -4,6 +4,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
+from ..core.analysis_library import AnalysisLibrary
 from ..core.data_cleaning import lof_outliers
 from ..core.preferences import PreferencesManager, UserPreferences
 from ..core.r_integration import RIntegrationManager
@@ -44,6 +45,7 @@ def run(
             QListWidget,
             QListWidgetItem,
             QMainWindow,
+            QPlainTextEdit,
             QMessageBox,
             QProgressBar,
             QProgressDialog,
@@ -81,6 +83,7 @@ def run(
             Path(self.preferences.project_root).mkdir(parents=True, exist_ok=True)
             Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
             self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
+            self.analysis_library = AnalysisLibrary()
 
             self._build_toolbar()
             self._build_shell()
@@ -126,6 +129,10 @@ def run(
             settings_action = QAction("Settings", self)
             settings_action.triggered.connect(self.open_toolkit_settings)
             toolbar.addAction(settings_action)
+
+            analysis_lib_action = QAction("Analysis Library", self)
+            analysis_lib_action.triggered.connect(self.open_analysis_library)
+            toolbar.addAction(analysis_lib_action)
 
             toolbar.addSeparator()
             header = QLabel("Bioinformatics Studio")
@@ -280,6 +287,7 @@ def run(
                 "Run Microbiology Auto-Analysis",
                 "Open AlphaFold entry",
                 "Check PyMOL integration",
+                "Open Analysis Library",
             ]
             for cmd in commands:
                 lst.addItem(cmd)
@@ -348,6 +356,57 @@ def run(
             msg.exec()
             if msg.clickedButton() == open_btn:
                 webbrowser.open(af_url)
+
+        def open_analysis_library(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Analysis Library (R + Python)")
+            layout = QVBoxLayout(dlg)
+
+            layout.addWidget(QLabel("Curated function catalog for bioinformatics/genomics/pharmacology/microbiology"))
+            items = QListWidget()
+            catalog = self.analysis_library.catalog()
+            for item in catalog:
+                items.addItem(f"{item.func_id} | {item.language} | {item.domain} | {item.title}")
+            layout.addWidget(items)
+
+            input_line = QLineEdit()
+            input_line.setPlaceholderText("Numeric payload for Python functions (comma separated): e.g. 1,2,3")
+            layout.addWidget(input_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Run/Preview")
+
+            def run_selected() -> None:
+                row = items.currentRow()
+                if row < 0:
+                    output.setPlainText("Select a function from the catalog.")
+                    return
+                selected = catalog[row]
+                if selected.language == "python":
+                    try:
+                        values = [float(x.strip()) for x in input_line.text().split(",") if x.strip()]
+                    except Exception:
+                        output.setPlainText("Invalid numeric payload.")
+                        return
+                    try:
+                        result = self.analysis_library.execute_python(selected.func_id, values)
+                        output.setPlainText(f"Python result: {result}")
+                    except Exception as exc:
+                        output.setPlainText(f"Execution error: {exc}")
+                else:
+                    try:
+                        tpl = self.analysis_library.r_template(selected.func_id)
+                        output.setPlainText(tpl)
+                    except Exception as exc:
+                        output.setPlainText(f"Template error: {exc}")
+
+            run_btn.clicked.connect(run_selected)
+            layout.addWidget(run_btn)
+            dlg.resize(920, 620)
+            dlg.exec()
 
         def create_new_project(self) -> None:
             project_id, ok = QInputDialog.getText(self, "New Project", "Project name:")

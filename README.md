@@ -282,3 +282,14 @@ A new integrator layer wraps best-in-class open-source libraries behind a plugin
 
 These wrappers are optional-safe: if a dependency is unavailable, the tool returns an error payload without crashing the app.
 
+
+## Analysis Library (R + Python)
+
+A built-in analysis library is now available from the desktop toolbar (**Analysis Library**) with curated functions/templates inspired by common modern bioinformatics workflows:
+
+- **Python executable functions** (run directly in-app): mean, median, sample stddev, growth-rate estimate, IC50 approximation, GC content
+- **R templates** (copy/use quickly): DESeq2 differential expression, limma batch correction, microbial growth `nls` fitting
+- **Cross-domain coverage**: bioinformatics, genomics, pharmacology, microbiology
+
+The dialog lets you select a function, run Python functions on numeric payloads, or preview R templates instantly.
+
