@@ -1,0 +1,18 @@
+{
+  "escherichia_coli": {
+    "ciprofloxacin": {
+      "zone_mm": {"susceptible_min": 26, "resistant_max": 21},
+      "mic_ug_ml": {"susceptible_max": 0.25, "resistant_min": 1.0}
+    },
+    "ampicillin": {
+      "zone_mm": {"susceptible_min": 17, "resistant_max": 13},
+      "mic_ug_ml": {"susceptible_max": 8.0, "resistant_min": 32.0}
+    }
+  },
+  "staphylococcus_aureus": {
+    "vancomycin": {
+      "zone_mm": {"susceptible_min": 15, "resistant_max": 14},
+      "mic_ug_ml": {"susceptible_max": 2.0, "resistant_min": 16.0}
+    }
+  }
+}

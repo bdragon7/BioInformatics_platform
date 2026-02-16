@@ -1,0 +1,73 @@
+name: Build Portable Packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main", "work"]
+  pull_request:
+
+jobs:
+  build-windows-noexe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build windows script-based package (no .exe)
+        shell: pwsh
+        run: ./scripts/build_windows_portable_noexe.ps1
+
+      - name: Upload windows noexe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-windows-noexe
+          path: BioinformaticsStudio-windows-noexe.zip
+          if-no-files-found: error
+
+
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build windows executable package
+        shell: pwsh
+        run: ./scripts/build_windows_portable.ps1
+
+      - name: Upload windows executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-windows-exe
+          path: BioinformaticsStudio-portable-windows.zip
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Linux script package
+        run: |
+          mkdir -p BioinformaticsStudio-linux-script
+          cp -r src tests scripts BioinformaticsStudio-linux-script/
+          cp main.py pyproject.toml README.md launch_bioinfostudio.sh launch_conda.sh BioinformaticsStudio-linux-script/
+          tar -czf BioinformaticsStudio-linux-script.tar.gz -C BioinformaticsStudio-linux-script .
+
+      - name: Upload linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BioinformaticsStudio-linux-script
+          path: BioinformaticsStudio-linux-script.tar.gz
+          if-no-files-found: error
