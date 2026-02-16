@@ -179,3 +179,14 @@ class Plugin(BioPlugin):
         return {"ok": True}
 ```
 
+
+## Microbiology intelligence upgrade
+
+The platform now includes microbiology-focused automation primitives:
+
+- Z-score outlier detection for biological replicates (`|Z| > 2.5` configurable)
+- Standard-curve linear regression with `R^2` summary output
+- Growth curve auto-analysis: `μmax`, generation time, carrying capacity (`K`), lag phase estimate
+- Contamination spike flags for negative-control traces
+- Built-in `MicrobiologyPlugin` with AST interpretation (zone and MIC) against local JSON standards
+

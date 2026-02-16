@@ -6,6 +6,7 @@ from pathlib import Path
 from ..core.r_integration import RIntegrationManager
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
+from ..plugins.microbiology_plugin import MicrobiologyPlugin
 from ..plugins.runtime import LocalPluginRuntime
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
@@ -60,6 +61,7 @@ def run(
             self.palette_store = PaletteStore()
             self.r_manager = RIntegrationManager(app_dir=Path.cwd())
             self.r_status = self.r_manager.detect_r()
+            self.microbiology_plugin = MicrobiologyPlugin()
 
             self._build_toolbar()
             self._build_shell()
@@ -149,7 +151,7 @@ def run(
                 "⚙️ Settings",
             ])
             nav.setMaximumWidth(240)
-            nav.currentTextChanged.connect(lambda x: self.statusBar().showMessage(f"Section: {x}", 2000))
+            nav.currentTextChanged.connect(self._on_nav_change)
             nav.setCurrentRow(0)
             splitter.addWidget(nav)
 
@@ -212,6 +214,7 @@ def run(
                 "Switch Theme",
                 "Open Local FASTA",
                 "Run QC Checks",
+                "Run Microbiology Auto-Analysis",
             ]
             for cmd in commands:
                 lst.addItem(cmd)
@@ -237,6 +240,21 @@ def run(
                 return
             path = Path(urls[0].toLocalFile())
             self.intelligent_analysis_suggestion(path)
+
+
+        def _on_nav_change(self, section: str) -> None:
+            self.statusBar().showMessage(f"Section: {section}", 2000)
+            if "Microbiology" in section:
+                self.run_microbiology_auto_analysis()
+
+        def run_microbiology_auto_analysis(self) -> None:
+            sample_payload = {"mode": "growth", "time_hours": [0, 2, 4, 6], "od600": [0.03, 0.05, 0.18, 0.42]}
+            result = self.microbiology_plugin.execute_logic(sample_payload)
+            self.info_panel.addItem(
+                f"Microbiology μmax={result['mu_max']:.3f}, K={result['carrying_capacity']:.3f}, lag={result['lag_phase_hours']}h"
+            )
+            if result["flags"]:
+                self.statusBar().showMessage(result["flags"][0], 5000)
 
         def intelligent_analysis_suggestion(self, path: Path) -> None:
             ext = path.suffix.lower()
