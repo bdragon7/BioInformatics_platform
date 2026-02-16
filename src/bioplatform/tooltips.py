@@ -5,4 +5,6 @@ TOOLTIPS: dict[str, str] = {
     "import.preview": "Preview input data and confirm detected types before loading.",
     "plot.editor": "Click any visual element to edit styles, labels, and layer order.",
     "plugin.search": "Search Python and R repositories; use GitHub URL if not found.",
+    "formulation.ionic_strength": "Ionic strength affects antimicrobial efficacy, protein stability, and buffer behavior.",
+    "formulation.soiling": "Soiling variables mimic organic interference that can suppress disinfectant performance.",
 }

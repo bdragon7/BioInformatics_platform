@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from IsoDesign_Ultra.core.orchestrator import ExecutionOrchestrator
+from IsoDesign_Ultra.core.orchestrator import ExecutionOrchestrator, FormulationState
 
 
 def test_orchestrator_builds_dependency_order(tmp_path: Path) -> None:
@@ -38,3 +38,24 @@ def run(payload):
     result = orch.execute({"smiles": "CCO"}, ["plot"])
     assert result["plot"] == "ok"
     assert result["execution_order"] == order
+
+
+def test_orchestrator_injects_formulation_state(tmp_path: Path) -> None:
+    plugins = tmp_path / "plugins"
+    p = plugins / "consumer"
+    p.mkdir(parents=True)
+    (p / "plugin.py").write_text(
+        """
+__plugin_info__ = {'name':'consumer','version':'1.0','inputs':['formulation_state'],'outputs':['state_seen'],'language':'python'}
+def run(payload):
+    fs = payload.get('formulation_state')
+    return {'state_seen': fs.theoretical_ph if fs else None}
+""",
+        encoding="utf-8",
+    )
+
+    orch = ExecutionOrchestrator(plugins)
+    orch.set_formulation_state(FormulationState(final_volume_ml=1000.0, theoretical_ph=6.8, ionic_strength_m=0.1))
+
+    result = orch.execute({}, ["state_seen"])
+    assert result["state_seen"] == 6.8

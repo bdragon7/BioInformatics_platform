@@ -22,6 +22,7 @@ from ..plugins.toolkit_integrator import ToolSettingsManager, ToolkitIntegratorP
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
 from .themes import THEMES
+from .formulation import open_formulation_designer
 
 
 def run(
@@ -152,6 +153,10 @@ def run(
             chemistry_action = QAction("Formulation Toolbox", self)
             chemistry_action.triggered.connect(self.open_formulation_toolbox)
             toolbar.addAction(chemistry_action)
+
+            designer_action = QAction("New Formulation", self)
+            designer_action.triggered.connect(self.open_formulation_designer_wizard)
+            toolbar.addAction(designer_action)
 
             ai_action = QAction("AI Assistant", self)
             ai_action.triggered.connect(self.open_ai_assistant)
@@ -304,6 +309,7 @@ def run(
                 "Open Analysis Library": self.open_analysis_library,
                 "Open Pipeline Runner": self.open_pipeline_runner,
                 "Open Formulation Toolbox": self.open_formulation_toolbox,
+                "Open New Formulation Wizard": self.open_formulation_designer_wizard,
                 "Open AI Assistant": self.open_ai_assistant,
                 "Switch Theme": lambda: self.statusBar().showMessage("Use the theme dropdown in the header.", 3500),
                 "Open Local FASTA": lambda: self.statusBar().showMessage("Use Import to open a FASTA file.", 3500),
@@ -335,6 +341,7 @@ def run(
                 "Open Analysis Library",
                 "Open Pipeline Runner",
                 "Open Formulation Toolbox",
+                "Open New Formulation Wizard",
                 "Open AI Assistant",
             ]
             for cmd in commands:
@@ -657,6 +664,9 @@ def run(
             run_btn.clicked.connect(execute_process)
             dlg.resize(940, 640)
             dlg.exec()
+
+        def open_formulation_designer_wizard(self) -> None:
+            open_formulation_designer(self)
 
         def open_formulation_toolbox(self) -> None:
             dlg = QDialog(self)

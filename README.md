@@ -131,6 +131,16 @@ Implemented in `src/bioplatform/llm/doe_assistant.py` and `src/bioplatform/gui/a
 
 ## Office-style quick start
 
+## Formulation Engineering Suite
+
+A production-focused formulation module is now wired in desktop mode via **New Formulation**:
+- mass-volume-molarity triangulation with purity and density handling
+- non-linear density correction layer for concentrated mixes
+- Henderson-Hasselbalch pH prediction and ionic-strength estimation
+- solubility risk checks against local solubility database
+- incompatibility matrix and Arrhenius-style retest date estimation
+- drag-and-drop import (`.csv`, `.sdf`) and Lab Handling Sheet generation
+
 To make the desktop app easier for wet-lab teams, the toolbar includes a **Quick Start** action that opens one-click workflow shortcuts:
 - Create New Project
 - Import Data

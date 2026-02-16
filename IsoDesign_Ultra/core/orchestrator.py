@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +13,30 @@ class GraphNode:
     plugin_key: str
 
 
+@dataclass(slots=True)
+class FormulationState:
+    """Shared formulation snapshot for downstream plugins.
+
+    Plugins can consume this object from payload key ``formulation_state`` to
+    adjust models (e.g., growth media-aware microbiology simulation).
+    """
+
+    final_volume_ml: float
+    theoretical_ph: float
+    ionic_strength_m: float
+    ingredients: list[dict[str, Any]] = field(default_factory=list)
+
+
 class ExecutionOrchestrator:
     """Dependency-aware DAG orchestrator for plugin execution."""
 
     def __init__(self, plugins_dir: Path | str = "plugins") -> None:
         self.loader = PluginLoader(plugins_dir=plugins_dir)
         self.registry = self.loader.load_all()
+        self.formulation_state: FormulationState | None = None
+
+    def set_formulation_state(self, state: FormulationState) -> None:
+        self.formulation_state = state
 
     def _resolve_plugins(self, requested_outputs: list[str]) -> list[str]:
         output_to_plugin: dict[str, str] = {}
@@ -80,6 +98,8 @@ class ExecutionOrchestrator:
     def execute(self, payload: dict[str, Any], requested_outputs: list[str]) -> dict[str, Any]:
         order = self.build_graph(requested_outputs)
         current = dict(payload)
+        if self.formulation_state is not None:
+            current["formulation_state"] = self.formulation_state
         current["execution_order"] = order
         for key in order:
             handle = self.registry[key]
