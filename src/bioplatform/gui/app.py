@@ -21,7 +21,7 @@ def run(
 ) -> int:
     try:
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QAction, QKeySequence, QShortcut
+        from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPixmap, QShortcut
         from PySide6.QtWidgets import (
             QApplication,
             QComboBox,
@@ -36,7 +36,10 @@ def run(
             QListWidgetItem,
             QMainWindow,
             QMessageBox,
+            QProgressBar,
+            QProgressDialog,
             QPushButton,
+            QSplashScreen,
             QSplitter,
             QToolBar,
             QVBoxLayout,
@@ -66,12 +69,13 @@ def run(
             self._build_toolbar()
             self._build_shell()
             self._build_plugin_dock()
+            self._build_progress_widgets()
             self._bind_shortcuts()
 
             self.statusBar().showMessage("Ready")
 
             if data:
-                self.data_viewer.load_file(data)
+                self._execute_with_progress("Loading startup data", lambda: self.data_viewer.load_file(data))
                 self.statusBar().showMessage(f"Loaded data: {data}")
             if workflow:
                 self.info_panel.addItem(f"Requested workflow: {workflow}")
@@ -200,6 +204,34 @@ def run(
             QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_command_palette)
             QShortcut(QKeySequence("Ctrl+L"), self, activated=self._clear_info)
 
+        def _build_progress_widgets(self) -> None:
+            self.task_progress = QProgressBar(self)
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(0)
+            self.task_progress.setFixedWidth(220)
+            self.task_progress.setFormat("Idle")
+            self.statusBar().addPermanentWidget(self.task_progress)
+
+            self.loading_dialog = QProgressDialog("Loading...", None, 0, 0, self)
+            self.loading_dialog.setWindowTitle("Please wait")
+            self.loading_dialog.setWindowModality(Qt.WindowModal)
+            self.loading_dialog.setCancelButton(None)
+            self.loading_dialog.close()
+
+        def _execute_with_progress(self, label: str, task) -> object:  # type: ignore[no-untyped-def]
+            self.task_progress.setRange(0, 0)
+            self.task_progress.setFormat(label)
+            self.loading_dialog.setLabelText(f"{label}…")
+            self.loading_dialog.show()
+            QApplication.processEvents()
+            try:
+                return task()
+            finally:
+                self.loading_dialog.hide()
+                self.task_progress.setRange(0, 100)
+                self.task_progress.setValue(100)
+                self.task_progress.setFormat(f"{label} complete")
+
         def open_command_palette(self) -> None:
             dlg = QDialog(self)
             dlg.setWindowTitle("Command Palette")
@@ -249,7 +281,10 @@ def run(
 
         def run_microbiology_auto_analysis(self) -> None:
             sample_payload = {"mode": "growth", "time_hours": [0, 2, 4, 6], "od600": [0.03, 0.05, 0.18, 0.42]}
-            result = self.microbiology_plugin.execute_logic(sample_payload)
+            result = self._execute_with_progress(
+                "Running microbiology analysis",
+                lambda: self.microbiology_plugin.execute_logic(sample_payload),
+            )
             self.info_panel.addItem(
                 f"Microbiology μmax={result['mu_max']:.3f}, K={result['carrying_capacity']:.3f}, lag={result['lag_phase_hours']}h"
             )
@@ -309,7 +344,7 @@ def run(
                 return
             path = Path(file_name)
             if path.suffix.lower() == ".csv":
-                self.data_viewer.load_file(path)
+                self._execute_with_progress("Importing data", lambda: self.data_viewer.load_file(path))
             else:
                 self.intelligent_analysis_suggestion(path)
 
@@ -337,7 +372,10 @@ def run(
             if not query:
                 self.statusBar().showMessage("Enter a plugin query", 2500)
                 return
-            manifests = self.aggregator.search_all(PluginQuery(query, limit=25))
+            manifests = self._execute_with_progress(
+                "Searching plugins",
+                lambda: self.aggregator.search_all(PluginQuery(query, limit=25)),
+            )
             self.plugin_results.clear()
             if not manifests and ("/" in query or query.startswith("http")):
                 gh = self.aggregator.import_from_github(query)
@@ -359,10 +397,25 @@ def run(
             self.statusBar().showMessage(f"Installed {manifest.id}", 3500)
 
     app = QApplication(sys.argv)
+
+    splash_pixmap = QPixmap(520, 280)
+    splash_pixmap.fill(QColor("#1f2330"))
+    painter = QPainter(splash_pixmap)
+    painter.setPen(QColor("#e8eaf4"))
+    painter.drawText(40, 130, "Bioinformatics Studio")
+    painter.setPen(QColor("#b2b9d2"))
+    painter.drawText(40, 165, "Loading modules, plugins, and workspace…")
+    painter.end()
+    splash = QSplashScreen(splash_pixmap)
+    splash.show()
+    splash.showMessage("Starting application…", Qt.AlignBottom | Qt.AlignLeft, QColor("#e8eaf4"))
+    app.processEvents()
+
     win = MainWindow()
     win.resize(1440, 860)
     win.apply_theme("dark")
     win.show()
+    splash.finish(win)
     return app.exec()
 
 
