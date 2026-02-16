@@ -31,3 +31,9 @@ def test_helix_has_gemma_local_controls() -> None:
     assert "Gemma-Local" in source
     assert "Gemma Model Manager" in source
     assert "GemmaStreamWorker" in source
+
+
+def test_helix_shelf_uses_svg_icons() -> None:
+    source = Path("src/bioplatform/gui/helix_main_window.py").read_text(encoding="utf-8")
+    assert '"assets" / "icons"' in source
+    assert "ShelfToolButton" in source

@@ -11,7 +11,8 @@ from .structure_viewport import open_structure_viewport
 
 def run_helix_ui() -> int:
     from PySide6.QtCore import QPointF, QPropertyAnimation, QThread, Qt, Signal, QEasingCurve, QTimer
-    from PySide6.QtGui import QAction, QKeySequence, QShortcut
+    from PySide6.QtCore import QSize
+    from PySide6.QtGui import QAction, QIcon, QKeySequence, QShortcut
     from PySide6.QtWidgets import (
         QApplication,
         QFileDialog,
@@ -27,6 +28,7 @@ def run_helix_ui() -> int:
         QSplitter,
         QTableView,
         QToolBar,
+        QToolButton,
         QVBoxLayout,
         QWidget,
         QPushButton,
@@ -75,6 +77,41 @@ def run_helix_ui() -> int:
         return curve
 
     SequenceViewer = create_sequence_viewer_widget()
+
+
+    class ShelfToolButton(QToolButton):
+        def __init__(self, text: str, icon: QIcon, parent=None) -> None:
+            super().__init__(parent)
+            self.setText(text)
+            self.setIcon(icon)
+            self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            self.setCheckable(True)
+            self.setIconSize(QSize(26, 26))
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self._base_style = (
+                "QToolButton {color: #E2E8F0; padding: 8px 10px; border-radius: 10px; border: 1px solid transparent;}"
+                "QToolButton:checked {background: rgba(56, 189, 248, 0.16); border: 1px solid #38BDF8;}"
+            )
+            self._hover_style = (
+                "QToolButton {color: #E2E8F0; padding: 8px 10px; border-radius: 10px; border: 1px solid #38BDF8; background: rgba(56, 189, 248, 0.12);}"
+                "QToolButton:checked {background: rgba(56, 189, 248, 0.2); border: 1px solid #38BDF8;}"
+            )
+            self.setStyleSheet(self._base_style)
+
+        def enterEvent(self, event) -> None:  # type: ignore[override]
+            self.setIconSize(QSize(29, 29))
+            self.setStyleSheet(self._hover_style)
+            super().enterEvent(event)
+
+        def leaveEvent(self, event) -> None:  # type: ignore[override]
+            self.setIconSize(QSize(26, 26))
+            self.setStyleSheet(self._base_style)
+            super().leaveEvent(event)
+
+
+    def _shelf_icon(name: str) -> QIcon:
+        icon_path = Path(__file__).resolve().parent / "assets" / "icons" / f"{name}.svg"
+        return QIcon(str(icon_path))
 
     class HelixMainWindow(QMainWindow):
         def __init__(self) -> None:
@@ -292,25 +329,35 @@ def run_helix_ui() -> int:
             shadow.setOffset(0, 4)
             shelf.setGraphicsEffect(shadow)
 
-            seq_action = QAction("Sequence Viewer", self)
-            seq_action.triggered.connect(lambda: self.statusBar().showMessage("Sequence Viewer active", 2000))
-            shelf.addAction(seq_action)
+            self._shelf_buttons: list[ShelfToolButton] = []
 
-            blast_action = QAction("BLAST Search", self)
-            blast_action.triggered.connect(lambda: self.statusBar().showMessage("BLAST panel placeholder", 2000))
-            shelf.addAction(blast_action)
+            def add_button(text: str, icon_name: str, handler) -> None:
+                btn = ShelfToolButton(text, _shelf_icon(icon_name), self)
+                btn.clicked.connect(handler)
+                btn.clicked.connect(lambda checked=False, b=btn: self._set_active_shelf_button(b))
+                shelf.addWidget(btn)
+                self._shelf_buttons.append(btn)
 
-            model_action = QAction("3D Protein Model", self)
-            model_action.triggered.connect(self.open_apex_structure_viewport)
-            shelf.addAction(model_action)
+            add_button("Sequence Viewer", "sequence", lambda: self.statusBar().showMessage("Sequence Viewer active", 2000))
+            add_button("BLAST Search", "blast", lambda: self.statusBar().showMessage("BLAST panel placeholder", 2000))
+            add_button("3D Protein Model", "protein", self.open_apex_structure_viewport)
+            add_button("Open FASTA/VCF", "spreadsheet", self.open_sequence_file)
+            add_button("Gemma Local", "gemma", self._run_gemma_local)
 
-            open_action = QAction("Open FASTA/VCF", self)
-            open_action.triggered.connect(self.open_sequence_file)
-            shelf.addAction(open_action)
+            if self._shelf_buttons:
+                self._set_active_shelf_button(self._shelf_buttons[0])
 
-            gemma_action = QAction("Gemma Local", self)
-            gemma_action.triggered.connect(self._run_gemma_local)
-            shelf.addAction(gemma_action)
+        def _set_active_shelf_button(self, active: ShelfToolButton) -> None:
+            for button in getattr(self, "_shelf_buttons", []):
+                button.setChecked(button is active)
+                if button is active:
+                    glow = QGraphicsDropShadowEffect(self)
+                    glow.setColor(Qt.GlobalColor.cyan)
+                    glow.setBlurRadius(16)
+                    glow.setOffset(0, 0)
+                    button.setGraphicsEffect(glow)
+                else:
+                    button.setGraphicsEffect(None)
 
 
         def open_apex_structure_viewport(self) -> None:

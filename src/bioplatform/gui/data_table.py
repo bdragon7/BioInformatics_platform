@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, median
 
+from ..core.error_prevention import SpreadsheetValueGuard
+from ..core.workspace import WorkspaceManager
 from ..visualization.editor_state import GraphEditorState, GraphElement
 from .interactive_plot import create_interactive_plot_widget
 
@@ -46,22 +48,36 @@ def _safe_float(value: str) -> float:
         return 0.0
 
 
-def evaluate_formula(rows: list[list[str]], formula: str, current_cell: tuple[int, int], depth: int = 0) -> str:
-    if depth > 12:
+def evaluate_formula(
+    rows: list[list[str]],
+    formula: str,
+    current_cell: tuple[int, int],
+    depth: int = 0,
+    visited: set[tuple[int, int]] | None = None,
+) -> str:
+    if depth > 24:
         return "#CYCLE"
     expr = formula.strip()
     if not expr.startswith("="):
         return formula
+
+    seen = set() if visited is None else set(visited)
+    if current_cell in seen:
+        return "#CYCLE"
+    seen.add(current_cell)
+
     body = expr[1:].strip()
 
     def cell_value(r: int, c: int) -> float:
         if r < 0 or c < 0 or r >= len(rows) or c >= len(rows[r]):
             return 0.0
-        if (r, c) == current_cell:
-            return 0.0
+        if (r, c) in seen:
+            raise ValueError("cycle")
         raw = rows[r][c]
         if isinstance(raw, str) and raw.startswith("="):
-            nested = evaluate_formula(rows, raw, (r, c), depth + 1)
+            nested = evaluate_formula(rows, raw, (r, c), depth + 1, seen)
+            if nested == "#CYCLE":
+                raise ValueError("cycle")
             return _safe_float(nested)
         return _safe_float(str(raw))
 
@@ -84,7 +100,10 @@ def evaluate_formula(rows: list[list[str]], formula: str, current_cell: tuple[in
     for fn in ["SUM", "AVERAGE", "MIN", "MAX", "STDDEV", "STDEV"]:
         if upper.startswith(f"{fn}(") and body.endswith(")"):
             inner = body[len(fn) + 1 : -1].strip()
-            vals = range_values(inner)
+            try:
+                vals = range_values(inner)
+            except Exception:
+                return "#CYCLE"
             if not vals:
                 return "0"
             if fn == "SUM":
@@ -103,7 +122,12 @@ def evaluate_formula(rows: list[list[str]], formula: str, current_cell: tuple[in
 
     if upper.startswith("SQRT(") and body.endswith(")"):
         inner = body[5:-1].strip()
-        vals = range_values(inner) if ":" in inner or (inner and inner[0].isalpha()) else []
+        vals = []
+        if ":" in inner or (inner and inner[0].isalpha()):
+            try:
+                vals = range_values(inner)
+            except Exception:
+                return "#CYCLE"
         if vals:
             return str(sqrt(max(vals[0], 0.0)))
         try:
@@ -125,6 +149,8 @@ def evaluate_formula(rows: list[list[str]], formula: str, current_cell: tuple[in
             try:
                 rr, cc = _cell_ref_to_pos(ref)
                 tokens.append(str(cell_value(rr, cc)))
+            except ValueError as exc:
+                return "#CYCLE" if "cycle" in str(exc).lower() else "#ERR"
             except Exception:
                 return "#ERR"
             continue
@@ -192,6 +218,8 @@ def create_data_viewer_widget():
             self.rows: list[list[str]] = []
             self.undo_stack: list[EditAction] = []
             self.redo_stack: list[EditAction] = []
+            self._value_guard = SpreadsheetValueGuard()
+            self._workspace_manager = WorkspaceManager(Path.cwd() / ".bioplatform_workspace")
 
         def load_csv(self, path: Path) -> None:
             with path.open("r", encoding="utf-8", newline="") as handle:
@@ -233,14 +261,25 @@ def create_data_viewer_widget():
             new = str(value)
             if old == new:
                 return False
+
+            header = self.headers[index.column()] if 0 <= index.column() < len(self.headers) else ""
+            ok, _detail = self._value_guard.validate(header, new)
+            if not ok:
+                return False
+
             self.rows[index.row()][index.column()] = new
-            self.undo_stack.append(EditAction(index.row(), index.column(), old, new))
+            action = EditAction(index.row(), index.column(), old, new)
+            self.undo_stack.append(action)
             self.redo_stack.clear()
             top_left = self.index(0, 0) if self.rows and self.headers else index
             bottom_right = self.index(max(len(self.rows) - 1, 0), max(len(self.headers) - 1, 0)) if self.rows and self.headers else index
             self.dataChanged.emit(top_left, bottom_right, [qt.Qt.DisplayRole, qt.Qt.EditRole])
             self.data_edited.emit(len(self.undo_stack))
             self.data_edited_point.emit(index.row(), index.column(), new)
+            self._workspace_manager.append_audit_entry(
+                event="spreadsheet_edit",
+                payload={"row": action.row, "col": action.col, "old": action.old, "new": action.new},
+            )
             return True
 
         def flags(self, index):  # type: ignore[override]

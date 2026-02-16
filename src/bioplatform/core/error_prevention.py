@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 
 
 @dataclass(slots=True)
@@ -41,3 +42,27 @@ class AnalysisGuardrails:
         if "assumptions" in keys:
             return "Switch to non-parametric alternatives or transform data."
         return "Proceed with caution; review failed checklist items."
+
+
+class SpreadsheetValueGuard:
+    """Validates spreadsheet entries before analysis/model updates."""
+
+    _non_negative_markers = ("conc", "concentration", "dose", "molar", "molarity")
+
+    def validate(self, header: str, value: str) -> tuple[bool, str]:
+        text = str(value).strip()
+        if not text or text.startswith("="):
+            return True, ""
+
+        key = header.lower().strip()
+        try:
+            numeric = float(text)
+        except Exception:
+            return True, ""
+
+        if not isfinite(numeric):
+            return False, "Non-finite numeric values are not allowed."
+
+        if any(marker in key for marker in self._non_negative_markers) and numeric < 0:
+            return False, f"{header or 'Value'} cannot be negative."
+        return True, ""

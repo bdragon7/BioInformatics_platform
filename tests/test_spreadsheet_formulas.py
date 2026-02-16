@@ -40,3 +40,18 @@ def test_formula_stddev_range() -> None:
 def test_formula_sqrt() -> None:
     rows = [["9", "=SQRT(A1)"]]
     assert evaluate_formula(rows, rows[0][1], (0, 1)) == "3.0"
+
+
+def test_formula_detects_direct_cycle() -> None:
+    rows = [["=A1"]]
+    assert evaluate_formula(rows, rows[0][0], (0, 0)) == "#CYCLE"
+
+
+def test_formula_detects_indirect_cycle() -> None:
+    rows = [["=B1", "=A1"]]
+    assert evaluate_formula(rows, rows[0][0], (0, 0)) == "#CYCLE"
+
+
+def test_formula_handles_nested_dependency_chain() -> None:
+    rows = [["1", "=A1+1", "=B1+1", "=C1+1"]]
+    assert evaluate_formula(rows, rows[0][3], (0, 3)) == "4.0"
