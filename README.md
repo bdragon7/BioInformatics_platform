@@ -79,6 +79,24 @@ If you want persistent download links, create a GitHub Release and attach the ge
 
 ## AI DoE assistant providers
 
+## Chemical/Formulation Toolbox
+
+A new desktop **Formulation Toolbox** is available from the toolbar to support chemical informatics workflows for:
+- cosmetics
+- cleaning
+- disinfection
+- antimicrobial / antiviral / antifungal formulation planning
+
+Capabilities:
+- local chemical lookup by **name or SMILES**
+- incompatibility checks (e.g., cationic/anionic conflicts, oxidizer/acid risks)
+- lightweight **QSAR-style** heuristic notes for unknown-risk screening
+- industrial guidance and suggested **DoE factors** by target domain
+- collaborative unknown-entry mode: if a chemical is not found locally, the report asks for SMILES + concentration so the workflow can continue with estimated QSAR guidance
+
+Implemented in `src/bioplatform/core/chemical_toolbox.py` and exposed in `src/bioplatform/gui/app.py`.
+
+
 The app now includes an **AI Assistant** toolbar action powered by **ChatGPT** or **Gemini**.
 
 You can configure provider + API keys directly in **Settings**:

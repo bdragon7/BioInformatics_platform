@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from ..core.analysis_library import AnalysisLibrary
+from ..core.chemical_toolbox import ChemicalToolbox
 from ..core.data_cleaning import lof_outliers
 from ..core.pipeline_engine import PythonRPipelineEngine
 from ..core.preferences import PreferencesManager, UserPreferences
@@ -88,6 +89,7 @@ def run(
             self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
             self.analysis_library = AnalysisLibrary()
             self.pipeline_engine = PythonRPipelineEngine(self.analysis_library)
+            self.chemical_toolbox = ChemicalToolbox()
             self.ai_assistant = self._build_ai_assistant()
 
             self._build_toolbar()
@@ -142,6 +144,10 @@ def run(
             pipeline_action = QAction("Pipelines", self)
             pipeline_action.triggered.connect(self.open_pipeline_runner)
             toolbar.addAction(pipeline_action)
+
+            chemistry_action = QAction("Formulation Toolbox", self)
+            chemistry_action.triggered.connect(self.open_formulation_toolbox)
+            toolbar.addAction(chemistry_action)
 
             ai_action = QAction("AI Assistant", self)
             ai_action.triggered.connect(self.open_ai_assistant)
@@ -292,6 +298,7 @@ def run(
                 "Check PyMOL integration": self.open_structure_tools,
                 "Open Analysis Library": self.open_analysis_library,
                 "Open Pipeline Runner": self.open_pipeline_runner,
+                "Open Formulation Toolbox": self.open_formulation_toolbox,
                 "Open AI Assistant": self.open_ai_assistant,
                 "Switch Theme": lambda: self.statusBar().showMessage("Use the theme dropdown in the header.", 3500),
                 "Open Local FASTA": lambda: self.statusBar().showMessage("Use Import to open a FASTA file.", 3500),
@@ -321,6 +328,7 @@ def run(
                 "Check PyMOL integration",
                 "Open Analysis Library",
                 "Open Pipeline Runner",
+                "Open Formulation Toolbox",
                 "Open AI Assistant",
             ]
             for cmd in commands:
@@ -617,6 +625,58 @@ def run(
             ask_btn.clicked.connect(ask_ai)
             run_btn.clicked.connect(execute_process)
             dlg.resize(940, 640)
+            dlg.exec()
+
+        def open_formulation_toolbox(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Chemical/Formulation Toolbox")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Enter chemicals by name or SMILES (comma-separated)."))
+
+            chemicals_line = QLineEdit()
+            chemicals_line.setPlaceholderText("e.g. Benzalkonium chloride, Sodium lauryl sulfate, EDTA")
+            layout.addWidget(chemicals_line)
+
+            target_combo = QComboBox()
+            target_combo.addItems(["cosmetics", "cleaning", "disinfection", "antimicrobial", "antiviral", "antifungal"])
+            layout.addWidget(target_combo)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Analyze Formulation")
+
+            def analyze() -> None:
+                raw = [x.strip() for x in chemicals_line.text().split(",") if x.strip()]
+                if not raw:
+                    output.setPlainText("Enter at least one chemical name or SMILES.")
+                    return
+                target = target_combo.currentText()
+                report = self.chemical_toolbox.analyze_formulation(raw, target=target)  # type: ignore[arg-type]
+                factors = self.chemical_toolbox.suggest_doe_factors(target)  # type: ignore[arg-type]
+                lines = [
+                    "Formulation report",
+                    f"Found: {', '.join(r.name for r in report.found) if report.found else 'none'}",
+                    f"Unknown: {', '.join(report.unknown) if report.unknown else 'none'}",
+                    "",
+                    "Incompatibilities:",
+                    *([f"- {x}" for x in report.incompatibilities] or ["- none detected"]),
+                    "",
+                    "QSAR notes:",
+                    *([f"- {x}" for x in report.qsar_notes] or ["- none"]),
+                    "",
+                    "Industrial guidance:",
+                    *[f"- {x}" for x in report.industrial_guidance],
+                    "",
+                    "Suggested DoE factors:",
+                    *[f"- {f}" for f in factors],
+                ]
+                output.setPlainText("\n".join(lines))
+
+            run_btn.clicked.connect(analyze)
+            layout.addWidget(run_btn)
+            dlg.resize(980, 700)
             dlg.exec()
 
         def create_new_project(self) -> None:
