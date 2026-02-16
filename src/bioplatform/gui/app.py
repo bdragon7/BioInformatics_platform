@@ -282,6 +282,25 @@ def run(
                 self.task_progress.setValue(100)
                 self.task_progress.setFormat(f"{label} complete")
 
+        def _run_command_palette_action(self, command: str) -> None:
+            handlers = {
+                "Create New Project": self.create_new_project,
+                "Import Data": self._open_file_from_toolbar,
+                "Open Plugin Marketplace": self.show_plugin_marketplace,
+                "Run Microbiology Auto-Analysis": self.run_microbiology_auto_analysis,
+                "Open AlphaFold entry": self.open_structure_tools,
+                "Check PyMOL integration": self.open_structure_tools,
+                "Open Analysis Library": self.open_analysis_library,
+                "Open Pipeline Runner": self.open_pipeline_runner,
+                "Open AI Assistant": self.open_ai_assistant,
+                "Switch Theme": lambda: self.statusBar().showMessage("Use the theme dropdown in the header.", 3500),
+                "Open Local FASTA": lambda: self.statusBar().showMessage("Use Import to open a FASTA file.", 3500),
+                "Run QC Checks": lambda: self.statusBar().showMessage("QC workflow hook will be added in a future update.", 3500),
+            }
+            action = handlers.get(command)
+            if action:
+                action()
+
         def open_command_palette(self) -> None:
             dlg = QDialog(self)
             dlg.setWindowTitle("Command Palette")
@@ -313,7 +332,16 @@ def run(
                     it = lst.item(i)
                     it.setHidden(txt.lower() not in it.text().lower())
 
+            def execute_selected() -> None:
+                item = lst.currentItem()
+                if item is None:
+                    return
+                self._run_command_palette_action(item.text())
+                dlg.accept()
+
             search.textChanged.connect(do_filter)
+            lst.itemActivated.connect(lambda item: (self._run_command_palette_action(item.text()), dlg.accept()))
+            search.returnPressed.connect(execute_selected)
             search.setFocus()
             dlg.resize(420, 320)
             dlg.exec()
@@ -541,8 +569,15 @@ def run(
                     return
                 has_key = bool(self.ai_assistant.api_key)
                 if has_key:
-                    response = self._execute_with_progress("Querying AI assistant", lambda: self.ai_assistant.chat(prompt))
-                    output.setPlainText(str(response))
+                    response = str(self._execute_with_progress("Querying AI assistant", lambda: self.ai_assistant.chat(prompt)))
+                    if "request failed:" in response.lower():
+                        output.setPlainText(
+                            response
+                            + "\n\nFallback local guidance:\n"
+                            + self._local_ai_suggestion(prompt)
+                        )
+                    else:
+                        output.setPlainText(response)
                 else:
                     output.setPlainText(
                         "API key not configured in Settings. Showing local workflow guidance:\n\n"

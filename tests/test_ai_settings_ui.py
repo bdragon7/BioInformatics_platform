@@ -8,3 +8,5 @@ def test_ai_settings_and_assistant_hooks_present() -> None:
     assert "AI provider" in source
     assert "ChatGPT API key" in source
     assert "Gemini API key" in source
+    assert "_run_command_palette_action" in source
+    assert "Fallback local guidance" in source
