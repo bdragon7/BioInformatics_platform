@@ -70,3 +70,33 @@ class FormulationValidator:
             hansen_distance=hansen_distance,
             risk=risk,
         )
+
+
+def qsar_live_feedback(smiles_list: list[str], predicted_delta_g: list[float]) -> list[dict[str, float | str]]:
+    """Prepare live QSAR-to-structure visualization payloads.
+
+    Maps predicted affinity contributions into normalized highlight intensities
+    that a 3D viewport can consume for real-time structural feedback.
+    """
+    if len(smiles_list) != len(predicted_delta_g):
+        raise ValueError("smiles_list and predicted_delta_g must have equal length")
+
+    if not predicted_delta_g:
+        return []
+
+    min_dg = min(predicted_delta_g)
+    max_dg = max(predicted_delta_g)
+    span = max(max_dg - min_dg, 1e-12)
+
+    out: list[dict[str, float | str]] = []
+    for smi, dg in zip(smiles_list, predicted_delta_g):
+        score = (max_dg - dg) / span
+        out.append(
+            {
+                "smiles": smi,
+                "delta_g_j_mol": float(dg),
+                "highlight_intensity": float(score),
+                "state_label": "high-affinity" if score > 0.66 else "mid-affinity" if score > 0.33 else "low-affinity",
+            }
+        )
+    return out

@@ -9,12 +9,14 @@ np = pytest.importorskip("numpy")
 from bioplatform.core.physics_engine import (
     bootstrap_error_cloud,
     cheng_prusoff_ki,
+    global_joint_spr_itc_fit,
     global_kd_fit,
     infer_dg_from_kd,
     morrison_fraction_bound,
     quality_score_gate,
     simulate_itc_injections,
     simulate_spr_sensorgram,
+    solver_convergence_path,
     to_molar,
     wang_ki,
 )
@@ -97,3 +99,37 @@ def test_structure_bridge_metrics(tmp_path: Path) -> None:
     kd_res = np.array([1e-7, 1e-6], dtype=np.float64)
     energy = energetic_mapping(metrics, kd_res)
     assert energy.delta_g_contrib_j_mol.shape[0] == 2
+
+
+def test_global_joint_spr_itc_fit_and_convergence_path() -> None:
+    pytest.importorskip("scipy")
+
+    t = np.linspace(0.0, 240.0, 241, dtype=np.float64)
+    true_spr = simulate_spr_sensorgram(
+        t,
+        analyte_conc_m=4e-7,
+        kon_m_inv_s=2e5,
+        koff_s_inv=4e-3,
+        rmax=100.0,
+        t_assoc_s=120.0,
+    ).response
+
+    inj = np.array([1e-11, 2e-11, 3e-11, 4e-11], dtype=np.float64)
+    true_itc = simulate_itc_injections(inj, kd_m=2e-8, delta_h_j_mol=-38000.0)
+
+    fit = global_joint_spr_itc_fit(
+        spr_time_s=t,
+        spr_response_ru=true_spr,
+        spr_analyte_conc_m=4e-7,
+        itc_injection_moles=inj,
+        itc_heat_j=true_itc,
+        temperature_k=298.15,
+        t_assoc_s=120.0,
+    )
+    assert fit.kd_m > 0
+    assert fit.spr_predicted.shape == true_spr.shape
+    assert fit.itc_predicted.shape == true_itc.shape
+
+    path = solver_convergence_path(10.0, 0.1, frames=20)
+    assert path.shape == (20,)
+    assert path[0] > path[-1]

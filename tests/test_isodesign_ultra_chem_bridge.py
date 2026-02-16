@@ -1,4 +1,4 @@
-from IsoDesign_Ultra.chem.informatics import FormulationValidator, smiles_to_feature_tensor
+from IsoDesign_Ultra.chem.informatics import FormulationValidator, qsar_live_feedback, smiles_to_feature_tensor
 from IsoDesign_Ultra.data.bridge import DataBuffer, r_interop
 
 
@@ -31,3 +31,10 @@ def test_r_interop_decorator_fallback_works() -> None:
     data = {"a": [1]}
     out = consume(data)
     assert out == data
+
+
+def test_qsar_live_feedback_payload() -> None:
+    payload = qsar_live_feedback(["CCO", "NCCO"], [-24000.0, -18000.0])
+    assert len(payload) == 2
+    assert payload[0]["highlight_intensity"] >= payload[1]["highlight_intensity"]
+    assert payload[0]["state_label"] in {"high-affinity", "mid-affinity", "low-affinity"}

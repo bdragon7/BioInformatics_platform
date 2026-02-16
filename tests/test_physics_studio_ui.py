@@ -8,3 +8,5 @@ def test_physics_studio_has_deep_space_palette_and_controls() -> None:
     assert "#F472B6" in src
     assert "Kinetic Scrubbing" in src
     assert "Global Fit (TRF)" in src
+    assert "Live QSAR structural state" in src
+    assert "Residual convergence frame" in src

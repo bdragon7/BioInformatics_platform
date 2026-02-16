@@ -46,6 +46,117 @@ class PhysicsQualityGate:
     mass_transport_flag: bool
 
 
+@dataclass(frozen=True, slots=True)
+class JointThermoKineticFitResult:
+    kd_m: float
+    kon_m_inv_s: float
+    koff_s_inv: float
+    rmax: float
+    delta_h_j_mol: float
+    delta_s_j_mol_k: float
+    rmse: float
+    spr_predicted: NDArray[np.float64]
+    itc_predicted: NDArray[np.float64]
+
+
+def global_joint_spr_itc_fit(
+    spr_time_s: NDArray[np.float64],
+    spr_response_ru: NDArray[np.float64],
+    spr_analyte_conc_m: float,
+    itc_injection_moles: NDArray[np.float64],
+    itc_heat_j: NDArray[np.float64],
+    temperature_k: float = 298.15,
+    t_assoc_s: float | None = None,
+) -> JointThermoKineticFitResult:
+    """Globally fit SPR and ITC with shared thermodynamics/kinetics.
+
+    Shared-state model:
+      - Kd(T) is constrained by Van't Hoff relation (ΔH, ΔS).
+      - Kinetic relation Kd = koff / kon links SPR rates to thermodynamics.
+      - ITC heats follow single-site digital twin scaled by instrument factor.
+    """
+    if spr_time_s.ndim != 1 or spr_response_ru.ndim != 1:
+        raise ValueError("SPR arrays must be 1D")
+    if spr_time_s.shape[0] != spr_response_ru.shape[0]:
+        raise ValueError("SPR time/response lengths must match")
+    if itc_injection_moles.ndim != 1 or itc_heat_j.ndim != 1:
+        raise ValueError("ITC arrays must be 1D")
+    if itc_injection_moles.shape[0] != itc_heat_j.shape[0]:
+        raise ValueError("ITC injection/heat lengths must match")
+
+    try:
+        from scipy.optimize import least_squares  # type: ignore
+    except Exception as exc:
+        raise RuntimeError("SciPy is required for global_joint_spr_itc_fit") from exc
+
+    assoc_switch = float(t_assoc_s) if t_assoc_s is not None else float(np.median(spr_time_s))
+
+    def residual(theta: NDArray[np.float64]) -> NDArray[np.float64]:
+        log10_kon, log10_koff, log10_rmax, delta_h, delta_s, itc_scale = theta
+        kon = 10.0**log10_kon
+        koff = 10.0**log10_koff
+        rmax = 10.0**log10_rmax
+
+        spr_pred = simulate_spr_sensorgram(
+            spr_time_s,
+            analyte_conc_m=spr_analyte_conc_m,
+            kon_m_inv_s=kon,
+            koff_s_inv=koff,
+            rmax=rmax,
+            t_assoc_s=assoc_switch,
+        ).response
+
+        kd_vh = float(_vanthoff_kd(np.array([temperature_k], dtype=np.float64), delta_h, delta_s)[0])
+        kd_kin = koff / max(kon, 1e-18)
+        kd_shared = np.sqrt(max(kd_vh, 1e-18) * max(kd_kin, 1e-18))
+        itc_pred = itc_scale * simulate_itc_injections(itc_injection_moles, kd_shared, delta_h)
+
+        spr_scale = max(float(np.std(spr_response_ru)), 1e-9)
+        itc_scale_norm = max(float(np.std(itc_heat_j)), 1e-12)
+        return np.concatenate([(spr_pred - spr_response_ru) / spr_scale, (itc_pred - itc_heat_j) / itc_scale_norm])
+
+    x0 = np.array([5.0, -2.0, 2.0, -30000.0, -80.0, 1.0], dtype=np.float64)
+    fit = least_squares(residual, x0=x0, method="trf")
+    log10_kon, log10_koff, log10_rmax, d_h, d_s, itc_scale = fit.x
+
+    kon = float(10.0**log10_kon)
+    koff = float(10.0**log10_koff)
+    rmax = float(10.0**log10_rmax)
+    kd_vh = float(_vanthoff_kd(np.array([temperature_k], dtype=np.float64), float(d_h), float(d_s))[0])
+    kd_kin = koff / max(kon, 1e-18)
+    kd = float(np.sqrt(max(kd_vh, 1e-18) * max(kd_kin, 1e-18)))
+
+    spr_pred = simulate_spr_sensorgram(
+        spr_time_s,
+        analyte_conc_m=spr_analyte_conc_m,
+        kon_m_inv_s=kon,
+        koff_s_inv=koff,
+        rmax=rmax,
+        t_assoc_s=assoc_switch,
+    ).response
+    itc_pred = float(itc_scale) * simulate_itc_injections(itc_injection_moles, kd, float(d_h))
+
+    rmse = float(np.sqrt(np.mean((spr_pred - spr_response_ru) ** 2)))
+    return JointThermoKineticFitResult(
+        kd_m=kd,
+        kon_m_inv_s=kon,
+        koff_s_inv=koff,
+        rmax=rmax,
+        delta_h_j_mol=float(d_h),
+        delta_s_j_mol_k=float(d_s),
+        rmse=rmse,
+        spr_predicted=spr_pred.astype(np.float64),
+        itc_predicted=itc_pred.astype(np.float64),
+    )
+
+
+def solver_convergence_path(initial_residual_norm: float, final_residual_norm: float, frames: int = 60) -> NDArray[np.float64]:
+    """Generate a smooth residual path for UI convergence animation."""
+    start = max(initial_residual_norm, 1e-12)
+    end = max(final_residual_norm, 1e-12)
+    return np.geomspace(start, end, num=max(frames, 2)).astype(np.float64)
+
+
 def _unit_factor_to_molar(unit: Literal["M", "mM", "uM", "nM"]) -> float:
     factors: dict[str, float] = {"M": 1.0, "mM": 1e-3, "uM": 1e-6, "nM": 1e-9}
     if unit not in factors:

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def open_physics_studio(parent: object | None = None) -> None:
     try:
-        from PySide6.QtCore import Qt
+        from PySide6.QtCore import Qt, QTimer
         from PySide6.QtWidgets import (
             QDialog,
             QHBoxLayout,
@@ -58,6 +58,28 @@ def open_physics_studio(parent: object | None = None) -> None:
     slider.setRange(0, 100)
     slider.setValue(0)
     layout.addWidget(slider)
+
+    live_label = QLabel("Live QSAR structural state: frame 0")
+    layout.addWidget(live_label)
+
+    # Simple "converging path" micro-animation scaffold.
+    residual_frames = [f"Residual convergence frame {i}" for i in range(1, 21)]
+    frame_index = {"value": 0}
+
+    def tick() -> None:
+        idx = frame_index["value"] % len(residual_frames)
+        curve_panel.append(residual_frames[idx])
+        frame_index["value"] += 1
+
+    timer = QTimer(dlg)
+    timer.setInterval(120)
+    timer.timeout.connect(tick)
+
+    def on_scrub(value: int) -> None:
+        live_label.setText(f"Live QSAR structural state: frame {value}")
+
+    slider.valueChanged.connect(on_scrub)
+    timer.start()
 
     dlg.resize(1120, 760)
     dlg.exec()
