@@ -23,6 +23,7 @@ from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
 from .themes import THEMES
 from .formulation import open_formulation_designer
+from .performance_monitor import PerformanceMonitorModel
 
 
 def run(
@@ -92,6 +93,7 @@ def run(
             self.pipeline_engine = PythonRPipelineEngine(self.analysis_library)
             self.chemical_toolbox = ChemicalToolbox()
             self.ai_assistant = self._build_ai_assistant()
+            self.performance_monitor = PerformanceMonitorModel()
 
             self._build_toolbar()
             self._build_shell()
@@ -277,11 +279,31 @@ def run(
             self.task_progress.setFormat("Idle")
             self.statusBar().addPermanentWidget(self.task_progress)
 
+            self.performance_badge = QLabel("")
+            self.performance_badge.setObjectName("PerformanceBadge")
+            self.statusBar().addPermanentWidget(self.performance_badge)
+            self._update_performance_badge(focused=True)
+
             self.loading_dialog = QProgressDialog("Loading...", None, 0, 0, self)
             self.loading_dialog.setWindowTitle("Please wait")
             self.loading_dialog.setWindowModality(Qt.WindowModal)
             self.loading_dialog.setCancelButton(None)
             self.loading_dialog.close()
+
+        def _update_performance_badge(self, focused: bool) -> None:
+            state = self.performance_monitor.snapshot(focused=focused)
+            self.performance_badge.setText(state.message)
+            self.performance_badge.setStyleSheet(
+                f"QLabel#PerformanceBadge {{ color: {state.color_hex}; font-weight: 600; padding: 2px 8px; }}"
+            )
+
+        def focusInEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            self._update_performance_badge(focused=True)
+            super().focusInEvent(event)
+
+        def focusOutEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            self._update_performance_badge(focused=False)
+            super().focusOutEvent(event)
 
         def _execute_with_progress(self, label: str, task) -> object:  # type: ignore[no-untyped-def]
             self.task_progress.setRange(0, 0)

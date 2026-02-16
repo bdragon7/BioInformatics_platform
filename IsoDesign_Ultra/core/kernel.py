@@ -164,8 +164,45 @@ class PluginLoader:
         return observer
 
 
+def detect_hardware_backend() -> dict[str, Any]:
+    """Best-effort hardware backend detection for hybrid compute routing."""
+    details: dict[str, Any] = {"backend": "cpu", "gpu_available": False}
+    try:
+        import torch  # type: ignore
+
+        if bool(torch.cuda.is_available()):
+            details["backend"] = "torch-cuda"
+            details["gpu_available"] = True
+            details["device"] = str(torch.cuda.get_device_name(0))
+            return details
+    except Exception as exc:
+        details["torch_error"] = str(exc)
+
+    try:
+        import cupy as cp  # type: ignore
+
+        count = int(cp.cuda.runtime.getDeviceCount())
+        if count > 0:
+            details["backend"] = "cupy"
+            details["gpu_available"] = True
+            details["device_count"] = count
+            return details
+    except Exception as exc:
+        details["cupy_error"] = str(exc)
+
+    try:
+        import numba  # type: ignore
+
+        details["backend"] = "numba-cpu"
+        details["numba_version"] = getattr(numba, "__version__", "installed")
+    except Exception as exc:
+        details["numba_error"] = str(exc)
+    return details
+
+
 def health_check() -> dict[str, Any]:
     status: dict[str, Any] = {"python": True, "r_home": bool(os.environ.get("R_HOME"))}
+    status.update({f"compute_{k}": v for k, v in detect_hardware_backend().items()})
     try:
         from rdkit import Chem  # type: ignore
 

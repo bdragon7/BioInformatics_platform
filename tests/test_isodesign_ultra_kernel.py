@@ -36,3 +36,4 @@ def test_health_check_has_expected_keys() -> None:
     assert "python" in result
     assert "rdkit" in result
     assert "rpy2" in result
+    assert "compute_backend" in result
