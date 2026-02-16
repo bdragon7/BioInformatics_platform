@@ -129,6 +129,17 @@ The AI Assistant dialog supports:
 Implemented in `src/bioplatform/llm/doe_assistant.py` and `src/bioplatform/gui/app.py`.
 
 
+## Office-style quick start
+
+To make the desktop app easier for wet-lab teams, the toolbar includes a **Quick Start** action that opens one-click workflow shortcuts:
+- Create New Project
+- Import Data
+- Formulation Toolbox
+- Pipeline Runner
+- AI Assistant
+
+This keeps common tasks discoverable in a single panel (similar to office-suite launch flows).
+
 ## Premium UI refresh
 
 The desktop UX has been upgraded with an Adobe-inspired workspace style:

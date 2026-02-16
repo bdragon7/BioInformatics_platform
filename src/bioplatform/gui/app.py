@@ -121,6 +121,10 @@ def run(
             import_action.triggered.connect(self._open_file_from_toolbar)
             toolbar.addAction(import_action)
 
+            quick_start_action = QAction("Quick Start", self)
+            quick_start_action.triggered.connect(self.open_quick_start)
+            toolbar.addAction(quick_start_action)
+
             color_action = QAction("Color", self)
             color_action.triggered.connect(self.choose_color)
             toolbar.addAction(color_action)
@@ -292,6 +296,7 @@ def run(
             handlers = {
                 "Create New Project": self.create_new_project,
                 "Import Data": self._open_file_from_toolbar,
+                "Open Quick Start": self.open_quick_start,
                 "Open Plugin Marketplace": self.show_plugin_marketplace,
                 "Run Microbiology Auto-Analysis": self.run_microbiology_auto_analysis,
                 "Open AlphaFold entry": self.open_structure_tools,
@@ -319,6 +324,7 @@ def run(
             commands = [
                 "Create New Project",
                 "Import Data",
+                "Open Quick Start",
                 "Open Plugin Marketplace",
                 "Switch Theme",
                 "Open Local FASTA",
@@ -524,6 +530,31 @@ def run(
             layout.addWidget(r_template_btn)
 
             dlg.resize(900, 620)
+            dlg.exec()
+
+        def open_quick_start(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Quick Start (Office-style)")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Choose a common workflow to get started quickly."))
+
+            actions = [
+                ("Create New Project", self.create_new_project),
+                ("Import Data", self._open_file_from_toolbar),
+                ("Formulation Toolbox", self.open_formulation_toolbox),
+                ("Pipeline Runner", self.open_pipeline_runner),
+                ("AI Assistant", self.open_ai_assistant),
+            ]
+
+            for title, handler in actions:
+                btn = QPushButton(title)
+                btn.clicked.connect(lambda _checked=False, h=handler: (dlg.accept(), h()))
+                layout.addWidget(btn)
+
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dlg.accept)
+            layout.addWidget(close_btn)
+            dlg.resize(420, 360)
             dlg.exec()
 
         def _build_ai_assistant(self) -> DoEAssistant:
