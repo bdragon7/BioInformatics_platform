@@ -79,6 +79,8 @@ If you want persistent download links, create a GitHub Release and attach the ge
 
 ## IsoDesign_Ultra scaffold (headless autonomous engine blueprint)
 
+For a wet-lab-first explanation of the same architecture, see `WET_LAB_ARCHITECTURE_GUIDE.md`.
+
 A new Python 3.11+ compatible scaffold named `IsoDesign_Ultra/` is included with core modules:
 - `core.kernel`: protocol-based plugin loading for Python/R plugins, metadata validation, hot-reload watcher hook, and health checks (R_HOME + RDKit + rpy2)
 - `core.orchestrator`: dependency-aware execution orchestration using plugin metadata
