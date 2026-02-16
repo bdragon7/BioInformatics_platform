@@ -293,3 +293,15 @@ A built-in analysis library is now available from the desktop toolbar (**Analysi
 
 The dialog lets you select a function, run Python functions on numeric payloads, or preview R templates instantly.
 
+
+## Automated Python/R Pipelines
+
+The app now includes a **Pipelines** runner in the toolbar for end-to-end automation:
+
+1. **Clean data** (NaN repair and normalization-ready values)
+2. **Calculate stats** (mean/median/stddev + outlier detection)
+3. **Generate figure** (editable Matplotlib figure object)
+4. **Export high quality** outputs to `PNG` (600 dpi), `SVG`, and `PDF`
+
+The pipeline dialog also provides an R pipeline template (`ggplot2`) for reproducible R-side execution.
+

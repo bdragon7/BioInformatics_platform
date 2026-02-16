@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..core.analysis_library import AnalysisLibrary
 from ..core.data_cleaning import lof_outliers
+from ..core.pipeline_engine import PythonRPipelineEngine
 from ..core.preferences import PreferencesManager, UserPreferences
 from ..core.r_integration import RIntegrationManager
 from ..core.structure_integration import alphafold_prediction_url, detect_pymol
@@ -84,6 +85,7 @@ def run(
             Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
             self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
             self.analysis_library = AnalysisLibrary()
+            self.pipeline_engine = PythonRPipelineEngine(self.analysis_library)
 
             self._build_toolbar()
             self._build_shell()
@@ -133,6 +135,10 @@ def run(
             analysis_lib_action = QAction("Analysis Library", self)
             analysis_lib_action.triggered.connect(self.open_analysis_library)
             toolbar.addAction(analysis_lib_action)
+
+            pipeline_action = QAction("Pipelines", self)
+            pipeline_action.triggered.connect(self.open_pipeline_runner)
+            toolbar.addAction(pipeline_action)
 
             toolbar.addSeparator()
             header = QLabel("Bioinformatics Studio")
@@ -288,6 +294,7 @@ def run(
                 "Open AlphaFold entry",
                 "Check PyMOL integration",
                 "Open Analysis Library",
+                "Open Pipeline Runner",
             ]
             for cmd in commands:
                 lst.addItem(cmd)
@@ -406,6 +413,73 @@ def run(
             run_btn.clicked.connect(run_selected)
             layout.addWidget(run_btn)
             dlg.resize(920, 620)
+            dlg.exec()
+
+        def open_pipeline_runner(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Python/R Pipeline Runner")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Pipeline: clean → stats → figure (editable export)"))
+
+            input_line = QLineEdit()
+            input_line.setPlaceholderText("Values (comma separated), e.g. 0.1,0.2,0.3,1.1")
+            layout.addWidget(input_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Run Pipeline")
+            export_btn = QPushButton("Export Figure (PNG/SVG/PDF)")
+            export_btn.setEnabled(False)
+            r_template_btn = QPushButton("Show R Pipeline Template")
+
+            state: dict[str, object] = {"result": None}
+
+            def run_pipeline() -> None:
+                try:
+                    values = [float(x.strip()) for x in input_line.text().split(",") if x.strip()]
+                except Exception:
+                    output.setPlainText("Invalid numeric input.")
+                    return
+                result = self._execute_with_progress("Running pipeline", lambda: self.pipeline_engine.run_growth_pipeline(values))
+                state["result"] = result
+                export_btn.setEnabled(result.figure is not None)
+                output.setPlainText(
+                    "Pipeline complete\n"
+                    f"Cleaned: {result.cleaned}\n"
+                    f"Stats: {result.stats}\n"
+                    f"Outliers: {result.outliers}\n"
+                    f"Figure ready: {'yes' if result.figure is not None else 'no (matplotlib missing)'}"
+                )
+
+            def export_figure() -> None:
+                result = state.get("result")
+                if result is None:
+                    output.setPlainText("Run pipeline first.")
+                    return
+                target, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Export pipeline figure",
+                    str(Path(self.preferences.output_dir) / "pipeline_plot"),
+                    "PNG file (*.png)",
+                )
+                if not target:
+                    return
+                exported = self.pipeline_engine.export_figure_high_quality(result.figure, Path(target).with_suffix(""))
+                output.appendPlainText(f"Exported: {exported}")
+
+            def show_r_template() -> None:
+                output.setPlainText(self.pipeline_engine.r_pipeline_template())
+
+            run_btn.clicked.connect(run_pipeline)
+            export_btn.clicked.connect(export_figure)
+            r_template_btn.clicked.connect(show_r_template)
+            layout.addWidget(run_btn)
+            layout.addWidget(export_btn)
+            layout.addWidget(r_template_btn)
+
+            dlg.resize(900, 620)
             dlg.exec()
 
         def create_new_project(self) -> None:
