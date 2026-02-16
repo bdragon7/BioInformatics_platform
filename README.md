@@ -79,12 +79,20 @@ If you want persistent download links, create a GitHub Release and attach the ge
 
 ## AI DoE assistant providers
 
-The DoE assistant is wired for **ChatGPT** or **Gemini** providers (not Claude-specific APIs):
+The app now includes an **AI Assistant** toolbar action powered by **ChatGPT** or **Gemini**.
 
-- ChatGPT: set `OPENAI_API_KEY`
-- Gemini: set `GEMINI_API_KEY`
+You can configure provider + API keys directly in **Settings**:
+- **AI provider**: `chatgpt` or `gemini`
+- **ChatGPT API key**
+- **Gemini API key**
 
-Implemented in `src/bioplatform/llm/doe_assistant.py`.
+Preferences are persisted in `config/user_preferences.json`.
+
+The AI Assistant dialog supports:
+- workflow suggestions from the configured provider (or local fallback guidance when no key is set)
+- process execution commands inside the app (pipeline execution for numeric payloads, microbiology auto-analysis trigger)
+
+Implemented in `src/bioplatform/llm/doe_assistant.py` and `src/bioplatform/gui/app.py`.
 
 
 ## Premium UI refresh

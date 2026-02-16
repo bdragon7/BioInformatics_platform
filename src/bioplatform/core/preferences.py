@@ -9,6 +9,9 @@ from pathlib import Path
 class UserPreferences:
     project_root: str = "projects"
     output_dir: str = "outputs"
+    ai_provider: str = "chatgpt"
+    openai_api_key: str = ""
+    gemini_api_key: str = ""
 
 
 class PreferencesManager:
@@ -26,6 +29,9 @@ class PreferencesManager:
         return UserPreferences(
             project_root=str(raw.get("project_root", "projects")),
             output_dir=str(raw.get("output_dir", "outputs")),
+            ai_provider=str(raw.get("ai_provider", "chatgpt")),
+            openai_api_key=str(raw.get("openai_api_key", "")),
+            gemini_api_key=str(raw.get("gemini_api_key", "")),
         )
 
     def save(self, prefs: UserPreferences) -> None:

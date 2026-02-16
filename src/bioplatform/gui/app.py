@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import webbrowser
 from pathlib import Path
+import re
 
 from ..core.analysis_library import AnalysisLibrary
 from ..core.data_cleaning import lof_outliers
@@ -11,6 +12,7 @@ from ..core.preferences import PreferencesManager, UserPreferences
 from ..core.r_integration import RIntegrationManager
 from ..core.structure_integration import alphafold_prediction_url, detect_pymol
 from ..core.workspace import WorkspaceManager
+from ..llm.doe_assistant import DoEAssistant
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
 from ..plugins.microbiology_plugin import MicrobiologyPlugin
@@ -86,6 +88,7 @@ def run(
             self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
             self.analysis_library = AnalysisLibrary()
             self.pipeline_engine = PythonRPipelineEngine(self.analysis_library)
+            self.ai_assistant = self._build_ai_assistant()
 
             self._build_toolbar()
             self._build_shell()
@@ -139,6 +142,10 @@ def run(
             pipeline_action = QAction("Pipelines", self)
             pipeline_action.triggered.connect(self.open_pipeline_runner)
             toolbar.addAction(pipeline_action)
+
+            ai_action = QAction("AI Assistant", self)
+            ai_action.triggered.connect(self.open_ai_assistant)
+            toolbar.addAction(ai_action)
 
             toolbar.addSeparator()
             header = QLabel("Bioinformatics Studio")
@@ -295,6 +302,7 @@ def run(
                 "Check PyMOL integration",
                 "Open Analysis Library",
                 "Open Pipeline Runner",
+                "Open AI Assistant",
             ]
             for cmd in commands:
                 lst.addItem(cmd)
@@ -482,6 +490,100 @@ def run(
             dlg.resize(900, 620)
             dlg.exec()
 
+        def _build_ai_assistant(self) -> DoEAssistant:
+            provider = self.preferences.ai_provider if self.preferences.ai_provider in {"chatgpt", "gemini"} else "chatgpt"
+            api_key = self.preferences.openai_api_key if provider == "chatgpt" else self.preferences.gemini_api_key
+            return DoEAssistant(provider=provider, api_key=api_key or None)
+
+        def _local_ai_suggestion(self, prompt: str) -> str:
+            lower = prompt.lower()
+            if "pipeline" in lower or "automate" in lower:
+                return (
+                    "Suggested process: 1) clean input values, 2) compute stats (mean/std), "
+                    "3) detect outliers, 4) generate and export figure as SVG/PDF/600-DPI PNG."
+                )
+            if "microbio" in lower or "growth" in lower:
+                return "Suggested process: run microbiology auto-analysis and inspect μmax, lag phase, and LOF outliers."
+            if "sequence" in lower or "fasta" in lower:
+                return "Suggested process: sanitize sequences, run QC checks, and open sequence viewer for curation."
+            return "Provide a goal (pipeline, microbiology, sequence, or stats) for a concrete suggested workflow."
+
+        def _extract_numeric_payload(self, text: str) -> list[float]:
+            return [float(token) for token in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)]
+
+        def open_ai_assistant(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("AI Assistant (ChatGPT/Gemini)")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Ask for workflow suggestions or execute an automated process."))
+
+            prompt_line = QLineEdit()
+            prompt_line.setPlaceholderText("Prompt, e.g. 'Run pipeline on 0.12, 0.18, 0.35, 1.1'")
+            layout.addWidget(prompt_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            ask_btn = QPushButton("Get Suggestion")
+            run_btn = QPushButton("Execute Process")
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(ask_btn)
+            row_layout.addWidget(run_btn)
+            layout.addWidget(row)
+
+            def ask_ai() -> None:
+                prompt = prompt_line.text().strip()
+                if not prompt:
+                    output.setPlainText("Enter a prompt first.")
+                    return
+                has_key = bool(self.ai_assistant.api_key)
+                if has_key:
+                    response = self._execute_with_progress("Querying AI assistant", lambda: self.ai_assistant.chat(prompt))
+                    output.setPlainText(str(response))
+                else:
+                    output.setPlainText(
+                        "API key not configured in Settings. Showing local workflow guidance:\n\n"
+                        + self._local_ai_suggestion(prompt)
+                    )
+
+            def execute_process() -> None:
+                prompt = prompt_line.text().strip()
+                if not prompt:
+                    output.setPlainText("Enter a prompt that includes a process request.")
+                    return
+                lower = prompt.lower()
+                if "pipeline" in lower:
+                    values = self._extract_numeric_payload(prompt)
+                    if not values:
+                        output.setPlainText("No numeric payload found. Example: 'run pipeline 0.1,0.2,0.3,1.0'")
+                        return
+                    result = self._execute_with_progress("Running pipeline", lambda: self.pipeline_engine.run_growth_pipeline(values))
+                    output.setPlainText(
+                        "Pipeline executed\n"
+                        f"Cleaned: {result.cleaned}\n"
+                        f"Stats: {result.stats}\n"
+                        f"Outliers: {result.outliers}\n"
+                        f"Figure ready: {'yes' if result.figure is not None else 'no'}"
+                    )
+                    self.info_panel.addItem("AI executed pipeline successfully.")
+                    return
+                if "microbio" in lower or "growth" in lower:
+                    self.run_microbiology_auto_analysis()
+                    output.setPlainText("Executed microbiology auto-analysis. See Inspector for details.")
+                    self.info_panel.addItem("AI executed microbiology auto-analysis.")
+                    return
+                output.setPlainText(
+                    "Supported executions: include 'pipeline' with numbers, or 'microbiology/growth' for auto-analysis."
+                )
+
+            ask_btn.clicked.connect(ask_ai)
+            run_btn.clicked.connect(execute_process)
+            dlg.resize(940, 640)
+            dlg.exec()
+
         def create_new_project(self) -> None:
             project_id, ok = QInputDialog.getText(self, "New Project", "Project name:")
             if not ok:
@@ -517,6 +619,15 @@ def run(
             form = QFormLayout()
             project_root_edit = QLineEdit(prefs.project_root)
             output_dir_edit = QLineEdit(prefs.output_dir)
+            provider_combo = QComboBox()
+            provider_combo.addItems(["chatgpt", "gemini"])
+            provider_combo.setCurrentText(prefs.ai_provider if prefs.ai_provider in {"chatgpt", "gemini"} else "chatgpt")
+            openai_key_edit = QLineEdit(prefs.openai_api_key)
+            openai_key_edit.setEchoMode(QLineEdit.Password)
+            openai_key_edit.setPlaceholderText("OpenAI API key")
+            gemini_key_edit = QLineEdit(prefs.gemini_api_key)
+            gemini_key_edit.setEchoMode(QLineEdit.Password)
+            gemini_key_edit.setPlaceholderText("Gemini API key")
 
             project_browse = QPushButton("Browse…")
             output_browse = QPushButton("Browse…")
@@ -548,6 +659,9 @@ def run(
 
             form.addRow("Project root", project_row)
             form.addRow("Output directory", output_row)
+            form.addRow("AI provider", provider_combo)
+            form.addRow("ChatGPT API key", openai_key_edit)
+            form.addRow("Gemini API key", gemini_key_edit)
             layout.addLayout(form)
 
             save_btn = QPushButton("Save")
@@ -558,13 +672,17 @@ def run(
                 new_prefs = UserPreferences(
                     project_root=project_root_edit.text().strip() or "projects",
                     output_dir=output_dir_edit.text().strip() or "outputs",
+                    ai_provider=provider_combo.currentText(),
+                    openai_api_key=openai_key_edit.text().strip(),
+                    gemini_api_key=gemini_key_edit.text().strip(),
                 )
                 self.preferences_manager.save(new_prefs)
                 self.preferences = new_prefs
+                self.ai_assistant = self._build_ai_assistant()
                 Path(self.preferences.project_root).mkdir(parents=True, exist_ok=True)
                 Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
                 self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
-                self.statusBar().showMessage("Toolkit settings and paths saved", 3000)
+                self.statusBar().showMessage("Toolkit, path, and AI settings saved", 3000)
                 dlg.accept()
 
             save_btn.clicked.connect(save)
