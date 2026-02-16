@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import sys
+import webbrowser
 from pathlib import Path
 
 from ..core.r_integration import RIntegrationManager
+from ..core.structure_integration import alphafold_prediction_url, detect_pymol
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
 from ..plugins.microbiology_plugin import MicrobiologyPlugin
@@ -98,6 +100,10 @@ def run(
             plugin_action = QAction("Plugins", self)
             plugin_action.triggered.connect(self.show_plugin_marketplace)
             toolbar.addAction(plugin_action)
+
+            structure_action = QAction("Structure", self)
+            structure_action.triggered.connect(self.open_structure_tools)
+            toolbar.addAction(structure_action)
 
             toolbar.addSeparator()
             header = QLabel("Bioinformatics Studio")
@@ -247,6 +253,8 @@ def run(
                 "Open Local FASTA",
                 "Run QC Checks",
                 "Run Microbiology Auto-Analysis",
+                "Open AlphaFold entry",
+                "Check PyMOL integration",
             ]
             for cmd in commands:
                 lst.addItem(cmd)
@@ -290,6 +298,26 @@ def run(
             )
             if result["flags"]:
                 self.statusBar().showMessage(result["flags"][0], 5000)
+
+
+        def open_structure_tools(self) -> None:
+            status = detect_pymol()
+            uid = "P69905"
+            af_url = alphafold_prediction_url(uid)
+            self.info_panel.addItem(status.message)
+            self.info_panel.addItem(f"AlphaFold quick link: {af_url}")
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Structure Tools")
+            msg.setText(
+                f"PyMOL: {'available' if status.available else 'not installed'}\n"
+                f"AlphaFold entry prepared for {uid}."
+            )
+            open_btn = msg.addButton("Open AlphaFold", QMessageBox.AcceptRole)
+            msg.addButton("Close", QMessageBox.RejectRole)
+            msg.exec()
+            if msg.clickedButton() == open_btn:
+                webbrowser.open(af_url)
 
         def intelligent_analysis_suggestion(self, path: Path) -> None:
             ext = path.suffix.lower()

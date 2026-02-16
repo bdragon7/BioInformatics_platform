@@ -205,3 +205,18 @@ The platform now includes microbiology-focused automation primitives:
 - Contamination spike flags for negative-control traces
 - Built-in `MicrobiologyPlugin` with AST interpretation (zone and MIC) against local JSON standards
 
+
+## Structure integrations (PyMOL + AlphaFold)
+
+Yes — the app now includes a lightweight structure-integration module:
+
+- **PyMOL detection** to check whether `pymol-open-source` is available in your environment.
+- **AlphaFold connection helper** that builds direct EBI AlphaFold entry URLs from UniProt IDs.
+- A **Structure** toolbar action in the desktop app to show integration status and open an AlphaFold entry in the browser.
+
+Install PyMOL module (optional):
+
+```bash
+pip install pymol-open-source
+```
+
