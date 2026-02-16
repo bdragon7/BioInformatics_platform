@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
+from statistics import correlation
 from pathlib import Path
 from typing import Callable
 
@@ -18,6 +19,14 @@ class PipelineResult:
     outliers: list[int]
     figure: object | None
     backend: str = "cpu"
+
+
+@dataclass(slots=True)
+class PlotSuggestion:
+    name: str
+    rationale: str
+    advanced: bool = False
+
 
 
 class PythonRPipelineEngine:
@@ -75,12 +84,77 @@ class PythonRPipelineEngine:
     def interactive_plot_payload(self, cleaned: list[float], outliers: list[int]) -> dict[str, object]:
         """Return Canvas-X payload linked to GraphEditorState for undo/redo."""
         style = self.graph_editor_state.elements["pipeline-series"].properties
+        suggestions = [
+            {"name": s.name, "rationale": s.rationale, "advanced": s.advanced}
+            for s in self.suggest_insightful_plot_types(cleaned)
+        ]
         return {
             "x": list(range(len(cleaned))),
             "y": cleaned,
             "outliers": outliers,
             "style": dict(style),
             "editor_undo_depth": len(self.graph_editor_state._undo),
+            "suggestions": suggestions,
+            "style_guide": self.world_class_plot_style_guide(),
+        }
+
+    def suggest_insightful_plot_types(self, cleaned: list[float]) -> list[PlotSuggestion]:
+        """Return three ranked plot ideas (including one advanced/custom view)."""
+        if not cleaned:
+            return [
+                PlotSuggestion("Line trend", "Best baseline for sparse sequential data."),
+                PlotSuggestion("Distribution histogram", "Shows spread and central tendency quickly."),
+                PlotSuggestion(
+                    "Residual control map",
+                    "Advanced: overlays deviation zones for anomaly localization once data arrives.",
+                    advanced=True,
+                ),
+            ]
+
+        n = len(cleaned)
+        spread = max(cleaned) - min(cleaned)
+        trend_strength = 0.0
+        if n > 2:
+            try:
+                x = list(range(n))
+                trend_strength = abs(float(correlation(x, cleaned)))
+            except Exception:
+                trend_strength = 0.0
+
+        first = PlotSuggestion(
+            "Annotated trend line",
+            "Highlights progression over time with direct labels and outlier overlays.",
+        )
+        second = PlotSuggestion(
+            "Distribution + target-zone band",
+            "Reveals variance and whether observations remain within operating bounds.",
+        )
+        advanced_text = "Advanced: mini-map + linked residual heat-strip for fast outlier navigation."
+        if trend_strength < 0.35 and spread > 0:
+            first = PlotSuggestion(
+                "Change-point sparkline",
+                "Weak linear trend detected; change-point view better reveals regime shifts.",
+            )
+        if n >= 50:
+            second = PlotSuggestion(
+                "Hex-binned density trend",
+                "Large series benefits from density view to reduce overplotting.",
+            )
+        return [
+            first,
+            second,
+            PlotSuggestion("Residual navigator map", advanced_text, advanced=True),
+        ]
+
+    @staticmethod
+    def world_class_plot_style_guide() -> dict[str, object]:
+        return {
+            "palette": ["#2E5A88", "#A93226", "#38BDF8", "#0F172A"],
+            "font_family": "Helvetica, Roboto, Arial, sans-serif",
+            "grid_alpha": 0.12,
+            "remove_spines": ["top", "right"],
+            "target_zone_alpha": 0.08,
+            "direct_label": True,
         }
 
     def export_figure_high_quality(self, figure: object | None, output_base: Path) -> dict[str, str]:
@@ -183,17 +257,33 @@ class PythonRPipelineEngine:
         except Exception:
             return None
 
-        fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+        fig, ax = plt.subplots(figsize=(10, 6), dpi=170)
         x = list(range(1, len(values) + 1))
-        ax.plot(x, values, marker="o", linewidth=1.8, label="Signal")
+        line_color = "#2E5A88"
+        accent_color = "#A93226"
+        ax.plot(x, values, marker="o", markersize=4.2, linewidth=2.0, color=line_color)
+
+        if values:
+            mean_v = sum(values) / len(values)
+            std_v = (sum((v - mean_v) ** 2 for v in values) / max(len(values), 1)) ** 0.5
+            low = mean_v - std_v
+            high = mean_v + std_v
+            ax.axhspan(low, high, color="#38BDF8", alpha=0.08)
+            ax.axhline(mean_v, color="#94A3B8", linewidth=1.0, linestyle="--", alpha=0.7)
+            ax.text(x[-1], values[-1], "  Signal", va="center", color=line_color, fontsize=9)
+
         if outliers:
             ox = [x[i] for i in outliers if 0 <= i < len(x)]
             oy = [values[i] for i in outliers if 0 <= i < len(values)]
             if ox and oy:
-                ax.scatter(ox, oy, color="#dc2626", s=60, label="Outliers", zorder=3)
-        ax.set_title("Automated Analysis Pipeline")
+                ax.scatter(ox, oy, color=accent_color, s=65, zorder=4)
+                for px, py in zip(ox[:3], oy[:3]):
+                    ax.annotate("outlier", (px, py), textcoords="offset points", xytext=(6, 6), fontsize=8, color=accent_color)
+
+        ax.set_title("Automated Analysis Pipeline", loc="left", fontsize=13, fontweight="bold")
         ax.set_xlabel("Sample")
         ax.set_ylabel("Value")
-        ax.grid(alpha=0.25)
-        ax.legend()
+        ax.grid(alpha=0.12)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
         return fig

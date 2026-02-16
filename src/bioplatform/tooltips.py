@@ -10,4 +10,6 @@ TOOLTIPS: dict[str, str] = {
     "compute.cost.qsar": "Predicted GPU Time: 12ms (Hybrid mode); CPU fallback: 180ms.",
     "compute.cost.physics": "Predicted GPU Time: 28ms for global fit with 50 curves.",
     "compute.cost.micro": "Predicted CPU Time: 320ms for 384-well pre-clean pass.",
+    "plot.master_architect": "Generates 3 ranked best-in-world plot ideas, including one advanced/custom view.",
+    "plot.style_guide": "Applies color-blind friendly palette, uncluttered axes, and contextual target-zone layering.",
 }
