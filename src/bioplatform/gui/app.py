@@ -8,6 +8,7 @@ import re
 from ..core.analysis_library import AnalysisLibrary
 from ..core.chemical_toolbox import ChemicalToolbox
 from ..core.data_cleaning import lof_outliers
+from ..core.error_handling import WorkplaceErrorHandler
 from ..core.pipeline_engine import PythonRPipelineEngine
 from ..core.preferences import PreferencesManager, UserPreferences
 from ..core.r_integration import RIntegrationManager
@@ -98,6 +99,7 @@ def run(
             self.ai_assistant = self._build_ai_assistant()
             self.performance_monitor = PerformanceMonitorModel()
             self.unified_system = UnifiedBioInformaticsSystem()
+            self.error_handler = WorkplaceErrorHandler()
 
             self._build_menu_bar()
             self._build_toolbar()
@@ -565,13 +567,13 @@ def run(
                         result = self.analysis_library.execute_python(selected.func_id, values)
                         output.setPlainText(f"Python result: {result}")
                     except Exception as exc:
-                        output.setPlainText(f"Execution error: {exc}")
+                        output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
                 else:
                     try:
                         tpl = self.analysis_library.r_template(selected.func_id)
                         output.setPlainText(tpl)
                     except Exception as exc:
-                        output.setPlainText(f"Template error: {exc}")
+                        output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
 
             run_btn.clicked.connect(run_selected)
             layout.addWidget(run_btn)
@@ -842,13 +844,17 @@ def run(
                 include_soiling = include_soiling_cb.isChecked()
                 include_hard_water = include_hard_water_cb.isChecked()
 
-                report = self.chemical_toolbox.analyze_formulation(raw, target=target)  # type: ignore[arg-type]
-                doe_plan = self.chemical_toolbox.build_doe_plan(  # type: ignore[arg-type]
-                    target,
-                    include_soiling=include_soiling,
-                    include_hard_water=include_hard_water,
-                    target_organism=organism_value,
-                )
+                try:
+                    report = self.chemical_toolbox.analyze_formulation(raw, target=target)  # type: ignore[arg-type]
+                    doe_plan = self.chemical_toolbox.build_doe_plan(  # type: ignore[arg-type]
+                        target,
+                        include_soiling=include_soiling,
+                        include_hard_water=include_hard_water,
+                        target_organism=organism_value,
+                    )
+                except Exception as exc:
+                    output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
+                    return
                 lines = [
                     "Formulation report",
                     f"Found: {', '.join(r.name for r in report.found) if report.found else 'none'}",
