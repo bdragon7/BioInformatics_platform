@@ -31,3 +31,18 @@ def test_app_has_plot_console_log_hooks() -> None:
     assert "Visual Plot Builder" in source
     assert "open_dual_console" in source
     assert "open_system_log_viewer" in source
+
+
+def test_app_toolbar_groups_and_terminal_tabs_present() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert "add_group_label(\"Project\")" in source
+    assert "add_group_label(\"Views\")" in source
+    assert "add_group_label(\"Tools\")" in source
+    assert "add_group_label(\"Actions\")" in source
+    assert "add_group_label(\"System\")" in source
+    assert "🐍 Python" in source
+    assert "📊 R" in source
+    assert "💻 System" in source
+    assert "📄 Log" in source
+    assert "📤 Output" in source
+    assert "Ctrl+`" in source

@@ -61,6 +61,8 @@ def run(
             QPushButton,
             QSplashScreen,
             QSplitter,
+            QTabWidget,
+            QTextEdit,
             QToolBar,
             QVBoxLayout,
             QWidget,
@@ -156,11 +158,12 @@ def run(
             self.addToolBar(toolbar)
 
             def add_group_label(text: str) -> None:
-                label = QLabel(text)
+                label = QLabel(text.upper())
                 label.setObjectName("SectionTitle")
+                label.setStyleSheet("font-size: 9px; color: #5C5F66; font-weight: 600; padding: 0 4px;")
                 toolbar.addWidget(label)
 
-            add_group_label("File")
+            add_group_label("Project")
             new_project_action = QAction("New Project", self)
             new_project_action.triggered.connect(self.create_new_project)
             toolbar.addAction(new_project_action)
@@ -174,25 +177,17 @@ def run(
             toolbar.addAction(quick_start_action)
             toolbar.addSeparator()
 
-            add_group_label("Workspace")
+            add_group_label("Views")
             color_action = QAction("Color", self)
             color_action.triggered.connect(self.choose_color)
             toolbar.addAction(color_action)
 
-            plugin_action = QAction("Plugins", self)
-            plugin_action.triggered.connect(self.show_plugin_marketplace)
-            toolbar.addAction(plugin_action)
-
             structure_action = QAction("Structure", self)
             structure_action.triggered.connect(self.open_structure_tools)
             toolbar.addAction(structure_action)
-
             toolbar.addSeparator()
-            add_group_label("Analysis")
-            settings_action = QAction("Settings", self)
-            settings_action.triggered.connect(self.open_toolkit_settings)
-            toolbar.addAction(settings_action)
 
+            add_group_label("Tools")
             analysis_lib_action = QAction("Analysis Library", self)
             analysis_lib_action.triggered.connect(self.open_analysis_library)
             toolbar.addAction(analysis_lib_action)
@@ -204,14 +199,26 @@ def run(
             chemistry_action = QAction("Formulation Toolbox", self)
             chemistry_action.triggered.connect(self.open_formulation_toolbox)
             toolbar.addAction(chemistry_action)
+            toolbar.addSeparator()
 
+            add_group_label("Actions")
             designer_action = QAction("New Formulation", self)
             designer_action.triggered.connect(self.open_formulation_designer_wizard)
             toolbar.addAction(designer_action)
+            toolbar.addSeparator()
 
+            add_group_label("System")
             ai_action = QAction("AI Assistant", self)
             ai_action.triggered.connect(self.open_ai_assistant)
             toolbar.addAction(ai_action)
+
+            settings_action = QAction("Settings", self)
+            settings_action.triggered.connect(self.open_toolkit_settings)
+            toolbar.addAction(settings_action)
+
+            plugin_action = QAction("Plugins", self)
+            plugin_action.triggered.connect(self.show_plugin_marketplace)
+            toolbar.addAction(plugin_action)
 
             toolbar.addSeparator()
             header = QLabel("Bioinformatics Studio")
@@ -262,7 +269,7 @@ def run(
             hero_layout.addLayout(right, 3)
             shell_layout.addWidget(hero)
 
-            splitter = QSplitter(Qt.Horizontal)
+            main_splitter = QSplitter(Qt.Horizontal)
 
             nav = QListWidget()
             nav.addItems([
@@ -277,11 +284,11 @@ def run(
             nav.setMaximumWidth(240)
             nav.currentTextChanged.connect(self._on_nav_change)
             nav.setCurrentRow(0)
-            splitter.addWidget(nav)
+            main_splitter.addWidget(nav)
 
             self.data_viewer = DataViewerWidget()
             self.data_viewer.selection_changed.connect(self._on_selection_count)
-            splitter.addWidget(self.data_viewer)
+            main_splitter.addWidget(self.data_viewer)
 
             side = QFrame()
             side.setObjectName("Card")
@@ -293,10 +300,41 @@ def run(
             self.info_panel = QListWidget()
             self.info_panel.addItem("Selection summary appears here.")
             side_layout.addWidget(self.info_panel)
-            splitter.addWidget(side)
-            splitter.setSizes([190, 900, 280])
+            main_splitter.addWidget(side)
+            main_splitter.setSizes([190, 900, 280])
 
-            shell_layout.addWidget(splitter)
+            self.terminal_tabs = QTabWidget()
+            self.terminal_tabs.setObjectName("TerminalTabs")
+            self.terminal_tabs.addTab(QTextEdit(), "🐍 Python")
+            self.terminal_tabs.addTab(QTextEdit(), "📊 R")
+            self.terminal_tabs.addTab(QTextEdit(), "💻 System")
+            self.terminal_tabs.addTab(QTextEdit(), "📄 Log")
+            self.terminal_tabs.addTab(QTextEdit(), "📤 Output")
+
+            term_toolbar = QFrame()
+            term_toolbar_layout = QHBoxLayout(term_toolbar)
+            term_toolbar_layout.setContentsMargins(6, 4, 6, 4)
+            for txt in ["⏹ Interrupt", "🔄 Restart", "🗑 Clear"]:
+                b = QPushButton(txt)
+                term_toolbar_layout.addWidget(b)
+            term_toolbar_layout.addStretch()
+            for txt in ["⫶ Split", "⚙ Settings"]:
+                b = QPushButton(txt)
+                term_toolbar_layout.addWidget(b)
+
+            terminal_container = QWidget()
+            terminal_layout = QVBoxLayout(terminal_container)
+            terminal_layout.setContentsMargins(0, 0, 0, 0)
+            terminal_layout.setSpacing(0)
+            terminal_layout.addWidget(term_toolbar)
+            terminal_layout.addWidget(self.terminal_tabs)
+
+            self.vertical_splitter = QSplitter(Qt.Vertical)
+            self.vertical_splitter.addWidget(main_splitter)
+            self.vertical_splitter.addWidget(terminal_container)
+            self.vertical_splitter.setSizes([760, 220])
+
+            shell_layout.addWidget(self.vertical_splitter)
             self.setCentralWidget(shell)
 
         def _build_plugin_dock(self) -> None:
@@ -328,6 +366,21 @@ def run(
         def _bind_shortcuts(self) -> None:
             QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_command_palette)
             QShortcut(QKeySequence("Ctrl+L"), self, activated=self._clear_info)
+            QShortcut(QKeySequence("Ctrl+`"), self, activated=self.toggle_terminal_panel)
+            QShortcut(QKeySequence("Ctrl+1"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(0) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(1) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(2) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+4"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(3) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+5"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(4) if hasattr(self, "terminal_tabs") else None)
+
+        def toggle_terminal_panel(self) -> None:
+            if not hasattr(self, "vertical_splitter"):
+                return
+            top, bottom = self.vertical_splitter.sizes()
+            if bottom < 60:
+                self.vertical_splitter.setSizes([760, 220])
+            else:
+                self.vertical_splitter.setSizes([960, 32])
 
         def _build_progress_widgets(self) -> None:
             self.task_progress = QProgressBar(self)
