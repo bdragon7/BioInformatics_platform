@@ -10,8 +10,16 @@ from typing import Callable
 
 from .analysis_library import AnalysisLibrary
 from .data_cleaning import lof_outliers, smart_sanitize_growth_values
-from .runtime import HardwareAbstractionLayer
+from .runtime import HardwareAbstractionLayer, accelerate
 from ..visualization.editor_state import GraphEditorState, GraphElement
+
+try:
+    from IsoDesign_Ultra.data.bridge import DataBuffer, r_interop
+except Exception:  # pragma: no cover
+    DataBuffer = None  # type: ignore
+
+    def r_interop(func):  # type: ignore
+        return func
 
 
 def infer_numeric_series(records: list[dict[str, object]]) -> list[float]:
@@ -62,6 +70,7 @@ class PythonRPipelineEngine:
         self.hal = HardwareAbstractionLayer()
         self.graph_editor_state = GraphEditorState()
         self.graph_editor_state.upsert(GraphElement(id="pipeline-series", kind="line", properties={"line_width": 2, "symbol": "o"}))
+        self.data_buffer = DataBuffer() if DataBuffer is not None else None
 
     def load_values_from_file(self, path: Path) -> list[float]:
         """Read CSV/JSON and infer a numeric series without manual mapping."""
@@ -232,6 +241,26 @@ class PythonRPipelineEngine:
             "write.csv(stats, 'pipeline_stats.csv', row.names=FALSE)\n"
         )
 
+
+    def to_interop_buffer(self, key: str, payload: list[float] | list[dict[str, object]] | dict[str, object]) -> object:
+        """Store payload in Arrow-capable buffer for Python/R bridge handoff."""
+        if self.data_buffer is None:
+            return payload
+        self.data_buffer.put(key, payload)
+        return self.data_buffer.to_arrow(key)
+
+    def from_interop_buffer(self, key: str, payload: object) -> object:
+        if self.data_buffer is None:
+            return payload
+        return self.data_buffer.from_arrow(key, payload)
+
+    @staticmethod
+    @r_interop
+    def pass_through_r_payload(payload: object) -> object:
+        """Decorator-backed conversion hook for Python->R payload conversion."""
+        return payload
+
+    @accelerate(threshold=100_000)
     def _compute_stats(self, cleaned: list[float]) -> tuple[dict[str, float], str]:
         ctx = self.hal.detect()
 
@@ -264,6 +293,7 @@ class PythonRPipelineEngine:
             except Exception:
                 pass
 
+        backend_hint = getattr(self._compute_stats, "last_backend", "cpu-fast-path")
         mean_v = float(self.analysis_library.execute_python("python.stats.mean", cleaned))
         median_v = float(self.analysis_library.execute_python("python.stats.median", cleaned))
         std_v = float(self.analysis_library.execute_python("python.stats.stddev", cleaned))
@@ -275,7 +305,7 @@ class PythonRPipelineEngine:
                 "min": min(cleaned) if cleaned else 0.0,
                 "max": max(cleaned) if cleaned else 0.0,
             },
-            "cpu",
+            "cpu" if backend_hint == "cpu-fast-path" else str(backend_hint),
         )
 
     def _accelerated_outliers(self, cleaned: list[float]) -> list[int]:

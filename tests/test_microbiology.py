@@ -3,6 +3,7 @@ from bioplatform.core.microbiology import (
     contamination_flags,
     detect_outliers_zscore,
     fit_standard_curve,
+    standards_alignment_notes,
 )
 
 
@@ -27,3 +28,9 @@ def test_growth_metrics_and_contamination_flags() -> None:
 
     flags = contamination_flags([0.01, 0.012, 0.014, 0.05], spike_multiplier=2.5)
     assert flags
+
+
+def test_standards_alignment_notes_contains_en_and_astm() -> None:
+    notes = standards_alignment_notes()
+    assert "EN 1276" in notes
+    assert any(k.startswith("ASTM") for k in notes)

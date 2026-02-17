@@ -102,3 +102,13 @@ def contamination_flags(control_trace: list[float], spike_multiplier: float = 2.
             break
 
     return flags
+
+
+
+def standards_alignment_notes() -> dict[str, str]:
+    """Reference notes for common microbiology efficacy standards."""
+    return {
+        "EN 1276": "Quantitative suspension test for bactericidal activity in food/industrial/domestic areas.",
+        "ASTM E2315": "Time-kill procedure for assessing antimicrobial activity using suspension methods.",
+        "ASTM E1054": "Evaluation framework for inactivators/neutralizers in antimicrobial efficacy testing.",
+    }

@@ -61,3 +61,17 @@ def test_load_values_from_json_without_manual_mapping(tmp_path: Path) -> None:
     engine = PythonRPipelineEngine()
     values = engine.load_values_from_file(json_file)
     assert values == [3.0, 4.5]
+
+
+def test_pipeline_interop_buffer_roundtrip() -> None:
+    engine = PythonRPipelineEngine()
+    payload = [0.1, 0.2, 0.3]
+    packed = engine.to_interop_buffer("demo", payload)
+    restored = engine.from_interop_buffer("demo", packed)
+    assert restored is not None
+
+
+def test_pipeline_compute_stats_tracks_accelerate_metadata() -> None:
+    engine = PythonRPipelineEngine()
+    result = engine.run_growth_pipeline([0.1, 0.2, 0.3, 0.4])
+    assert result.backend in {"cpu", "cpu-fast-path", "torch-cuda", "cupy", "numba-cpu", "numpy-cpu"}
