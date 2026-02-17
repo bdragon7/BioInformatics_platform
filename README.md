@@ -368,3 +368,26 @@ The app now includes a **Pipelines** runner in the toolbar for end-to-end automa
 
 The pipeline dialog also provides an R pipeline template (`ggplot2`) for reproducible R-side execution.
 
+
+
+## Architecture updates (services + provenance)
+
+Recent updates introduce a thin service layer under `src/bioplatform/services/`:
+- `PluginService` (runtime/registry/index client orchestration)
+- `AnalysisService` (analysis library + pipeline engine wiring)
+- `WorkspaceService` and `IntegrationService` (workspace/runtime capabilities)
+
+The GUI now calls these services instead of directly owning every heavy subsystem, which improves startup organization and testability.
+
+### Reproducibility / provenance
+
+`PythonRPipelineEngine.run_growth_pipeline(...)` now produces a provenance record (`ProvenanceRecord`) that includes dataset hash, parameters, software version, git commit (if available), and deterministic flags. Export with:
+
+```python
+result = engine.run_growth_pipeline(values)
+engine.export_result_bundle(result, Path("results/pipeline_bundle.json"))
+```
+
+### Optional R capability
+
+`main.py` no longer hard-fails if R is missing. The app starts in Python-capable mode and R-specific workflows can be disabled with status messaging.

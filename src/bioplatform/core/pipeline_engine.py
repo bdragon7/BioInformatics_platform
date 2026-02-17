@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor
 import csv
-from dataclasses import dataclass
 import json
-from statistics import correlation
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from statistics import correlation
 
+from ..visualization.editor_state import GraphEditorState, GraphElement
 from .analysis_library import AnalysisLibrary
 from .data_cleaning import lof_outliers, smart_sanitize_growth_values
+from .provenance import ProvenanceRecord, detect_git_commit, hash_dataset
 from .runtime import HardwareAbstractionLayer, accelerate
-from ..visualization.editor_state import GraphEditorState, GraphElement
 
 try:
     from IsoDesign_Ultra.data.bridge import DataBuffer, r_interop
@@ -51,6 +52,7 @@ class PipelineResult:
     stats: dict[str, float]
     outliers: list[int]
     figure: object | None
+    provenance: ProvenanceRecord
     backend: str = "cpu"
 
 
@@ -100,7 +102,23 @@ class PythonRPipelineEngine:
         outliers = self._accelerated_outliers(cleaned)
         self.graph_editor_state.set_property("pipeline-series", "last_outlier_count", len(outliers))
         fig = self._build_editable_figure(cleaned, outliers)
-        return PipelineResult(cleaned=cleaned, stats=stats, outliers=outliers, figure=fig, backend=backend)
+        provenance = ProvenanceRecord(
+            dataset_sha256=hash_dataset(cleaned),
+            parameters={"outlier_method": "lof", "z_threshold": 2.5, "backend": backend},
+            units={"value": "a.u."},
+            software_version="0.1.0",
+            git_commit=detect_git_commit(),
+            random_seed=None,
+            deterministic=True,
+        )
+        return PipelineResult(
+            cleaned=cleaned,
+            stats=stats,
+            outliers=outliers,
+            figure=fig,
+            provenance=provenance,
+            backend=backend,
+        )
 
     def run_growth_pipeline_stream(
         self,
@@ -229,6 +247,18 @@ class PythonRPipelineEngine:
         paths["pdf"] = str(pdf)
         return paths
 
+
+    def export_result_bundle(self, result: PipelineResult, output_path: Path) -> None:
+        payload = {
+            "cleaned": result.cleaned,
+            "stats": result.stats,
+            "outliers": result.outliers,
+            "backend": result.backend,
+            "provenance": result.provenance.to_dict(),
+        }
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
     def r_pipeline_template(self) -> str:
         return (
             "# R pipeline template: clean -> stats -> figure\n"
@@ -352,7 +382,7 @@ class PythonRPipelineEngine:
             oy = [values[i] for i in outliers if 0 <= i < len(values)]
             if ox and oy:
                 ax.scatter(ox, oy, color=accent_color, s=65, zorder=4)
-                for px, py in zip(ox[:3], oy[:3]):
+                for px, py in zip(ox[:3], oy[:3], strict=False):
                     ax.annotate("outlier", (px, py), textcoords="offset points", xytext=(6, 6), fontsize=8, color=accent_color)
 
         ax.set_title("Automated Analysis Pipeline", loc="left", fontsize=13, fontweight="bold")

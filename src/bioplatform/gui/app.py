@@ -1,32 +1,27 @@
 from __future__ import annotations
 
+import re
 import sys
 import webbrowser
 from pathlib import Path
-import re
 
-from ..core.analysis_library import AnalysisLibrary
 from ..core.chemical_toolbox import ChemicalToolbox
 from ..core.data_cleaning import lof_outliers
 from ..core.error_handling import WorkplaceErrorHandler
-from ..core.pipeline_engine import PythonRPipelineEngine
 from ..core.preferences import PreferencesManager, UserPreferences
-from ..core.r_integration import RIntegrationManager
-from ..core.structure_integration import alphafold_prediction_url, detect_pymol
+from ..core.structure_integration import alphafold_prediction_url
 from ..core.workspace import WorkspaceManager
-from ..llm.doe_assistant import DoEAssistant
 from ..integration.unified_system import UnifiedBioInformaticsSystem
+from ..llm.doe_assistant import DoEAssistant
 from ..plotting.visual_plot_builder import PlotConfiguration, PlotType
-from ..plugins.discovery import PluginIndexAggregator, PluginQuery
-from ..plugins.manager import PluginRegistry
 from ..plugins.microbiology_plugin import MicrobiologyPlugin
-from ..plugins.runtime import LocalPluginRuntime
-from ..plugins.toolkit_integrator import ToolSettingsManager, ToolkitIntegratorPlugin
+from ..plugins.toolkit_integrator import ToolkitIntegratorPlugin, ToolSettingsManager
+from ..services import AnalysisService, IntegrationService, PluginService, WorkspaceService
 from .color_tools import PaletteStore, pick_color
 from .data_table import create_data_viewer_widget
-from .themes import THEMES
 from .formulation import open_formulation_designer
 from .performance_monitor import PerformanceMonitorModel
+from .themes import THEMES
 
 
 def run(
@@ -36,7 +31,7 @@ def run(
     debug: bool = False,
 ) -> int:
     try:
-        from PySide6.QtCore import QObject, QThread, Qt, Signal
+        from PySide6.QtCore import QObject, Qt, QThread, Signal
         from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPixmap, QShortcut
         from PySide6.QtWidgets import (
             QApplication,
@@ -48,14 +43,14 @@ def run(
             QFormLayout,
             QFrame,
             QHBoxLayout,
-            QLabel,
             QInputDialog,
+            QLabel,
             QLineEdit,
             QListWidget,
             QListWidgetItem,
             QMainWindow,
-            QPlainTextEdit,
             QMessageBox,
+            QPlainTextEdit,
             QProgressBar,
             QProgressDialog,
             QPushButton,
@@ -79,15 +74,15 @@ def run(
         finished = Signal(list, str)
         failed = Signal(str)
 
-        def __init__(self, aggregator: PluginIndexAggregator, query_text: str, limit: int = 25) -> None:
+        def __init__(self, plugin_service: PluginService, query_text: str, limit: int = 25) -> None:
             super().__init__()
-            self.aggregator = aggregator
+            self.plugin_service = plugin_service
             self.query_text = query_text
             self.limit = limit
 
         def run(self) -> None:
             try:
-                manifests = self.aggregator.search_all(PluginQuery(self.query_text, limit=self.limit))
+                manifests = self.plugin_service.search(self.query_text, limit=self.limit)
                 self.finished.emit(manifests, self.query_text)
             except Exception as exc:
                 self.failed.emit(str(exc))
@@ -99,13 +94,11 @@ def run(
             self.setMinimumSize(1180, 760)
             self.setAcceptDrops(True)
 
-            self.aggregator = PluginIndexAggregator()
-            self.registry = PluginRegistry(Path("config/plugins.json"))
-            self.runtime = LocalPluginRuntime(Path("plugins"), Path("config/plugins_enabled.json"), seed_builtins=True)
+            self.plugin_service = PluginService.default()
             self.palette_store = PaletteStore()
-            self.r_manager = RIntegrationManager(app_dir=Path.cwd())
-            self.r_status = self.r_manager.detect_r()
-            self.pymol_status = detect_pymol()
+            self.integration_service = IntegrationService.default(Path.cwd())
+            self.r_status = self.integration_service.detect_r()
+            self.pymol_status = self.integration_service.detect_pymol()
             self.microbiology_plugin = MicrobiologyPlugin()
             self.toolkit_integrator = ToolkitIntegratorPlugin()
             self.tool_settings = ToolSettingsManager(Path("config/integrated_tools.json"))
@@ -113,9 +106,11 @@ def run(
             self.preferences = self.preferences_manager.load()
             Path(self.preferences.project_root).mkdir(parents=True, exist_ok=True)
             Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
-            self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
-            self.analysis_library = AnalysisLibrary()
-            self.pipeline_engine = PythonRPipelineEngine(self.analysis_library)
+            self.workspace_service = WorkspaceService.from_root(Path(self.preferences.project_root))
+            self.workspace_manager = self.workspace_service.manager
+            self.analysis_service = AnalysisService.default()
+            self.analysis_library = self.analysis_service.analysis_library
+            self.pipeline_engine = self.analysis_service.pipeline_engine
             self.chemical_toolbox = ChemicalToolbox()
             self.ai_assistant = self._build_ai_assistant()
             self.performance_monitor = PerformanceMonitorModel()
@@ -424,8 +419,8 @@ def run(
             self._refresh_runtime_status_labels()
 
         def _refresh_runtime_status_labels(self) -> None:
-            self.r_status = self.r_manager.detect_r()
-            self.pymol_status = detect_pymol()
+            self.r_status = self.integration_service.detect_r()
+            self.pymol_status = self.integration_service.detect_pymol()
             self.r_status_label.setText(f"R: {'ready' if self.r_status.available else 'missing'} | {self.r_status.message}")
             self.pymol_status_label.setText(
                 f"PyMOL: {'ready' if self.pymol_status.available else 'missing'} | {self.pymol_status.message}"
@@ -1090,7 +1085,7 @@ def run(
             label = QLabel("Enable/disable trusted plugins (untrusted plugins are blocked by default)")
             layout.addWidget(label)
             items = QListWidget()
-            plugins = self.runtime.list_plugins()
+            plugins = self.plugin_service.runtime.list_plugins()
             for plugin in plugins:
                 perms = ", ".join(plugin.permissions) if plugin.permissions else "none"
                 hash_preview = plugin.hash_sha256[:12]
@@ -1108,8 +1103,8 @@ def run(
             def persist_states() -> None:
                 for i, plugin in enumerate(plugins):
                     enabled = items.item(i).checkState() == Qt.CheckState.Checked
-                    self.runtime.set_trusted(plugin.plugin_id, enabled)
-                    self.runtime.set_enabled(plugin.plugin_id, enabled)
+                    self.plugin_service.runtime.set_trusted(plugin.plugin_id, enabled)
+                    self.plugin_service.runtime.set_enabled(plugin.plugin_id, enabled)
                 dlg.accept()
 
             save_btn = QPushButton("Save")
@@ -1166,7 +1161,7 @@ def run(
             self.loading_dialog.setLabelText("Searching plugins…")
             self.loading_dialog.show()
 
-            worker = PluginSearchWorker(self.aggregator, query, limit=25)
+            worker = PluginSearchWorker(self.plugin_service, query, limit=25)
             thread = QThread(self)
             worker.moveToThread(thread)
             thread.started.connect(worker.run)
@@ -1203,15 +1198,13 @@ def run(
 
         def install_selected(self, item) -> None:  # type: ignore[no-untyped-def]
             raw = item.text().split(" | ")[0]
-            if raw.startswith("github:"):
-                manifest = self.aggregator.import_from_github(raw.replace("github:", ""))
-            else:
+            mode = self.plugin_install_mode.currentText() if hasattr(self, "plugin_install_mode") else "portable"
+            try:
+                target = self.plugin_service.install_selected(raw, mode=mode)
+            except ValueError:
                 QMessageBox.information(self, "Install", "Select a GitHub plugin result to install.")
                 return
-
-            mode = self.plugin_install_mode.currentText() if hasattr(self, "plugin_install_mode") else "portable"
-            target = self.registry.install_github_plugin(manifest, Path("plugins"), mode=mode)
-            self.statusBar().showMessage(f"Installed {manifest.id} -> {target.name} ({mode})", 5000)
+            self.statusBar().showMessage(f"Installed {raw} -> {target.name} ({mode})", 5000)
 
     app = QApplication(sys.argv)
 

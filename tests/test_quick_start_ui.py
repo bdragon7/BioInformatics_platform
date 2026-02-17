@@ -17,7 +17,7 @@ def test_app_menu_and_runtime_hooks_present() -> None:
 
 def test_app_enables_builtin_plugin_seeding() -> None:
     source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
-    assert "seed_builtins=True" in source
+    assert "PluginService.default" in source
 
 
 def test_app_defaults_to_dark_pharmaceutical_theme() -> None:
@@ -54,3 +54,9 @@ def test_app_uses_async_plugin_search_worker() -> None:
     assert "class PluginSearchWorker" in source
     assert "moveToThread(thread)" in source
     assert "_on_plugin_search_finished" in source
+
+
+def test_app_uses_service_layer_for_plugins() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert "PluginService.default" in source
+    assert "self.plugin_service.search" in source
