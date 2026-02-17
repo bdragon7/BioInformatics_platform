@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bioplatform.plugins.discovery import PluginIndexAggregator
+from bioplatform.plugins.discovery import PluginIndexAggregator, PluginQuery
 from bioplatform.plugins.manager import PluginRegistry
 
 
@@ -16,3 +16,10 @@ def test_registry_install(tmp_path: Path) -> None:
     registry.install_manifest(manifest)
     installed = registry.list_installed()
     assert installed and installed[0].id == "github:org/repo"
+
+
+def test_search_all_prefers_github_repo_query() -> None:
+    agg = PluginIndexAggregator()
+    results = agg.search_all(PluginQuery("org/repo", limit=5))
+    assert results
+    assert results[0].id.startswith("github:")

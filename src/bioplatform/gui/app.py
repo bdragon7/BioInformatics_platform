@@ -81,6 +81,7 @@ def run(
             self.palette_store = PaletteStore()
             self.r_manager = RIntegrationManager(app_dir=Path.cwd())
             self.r_status = self.r_manager.detect_r()
+            self.pymol_status = detect_pymol()
             self.microbiology_plugin = MicrobiologyPlugin()
             self.toolkit_integrator = ToolkitIntegratorPlugin()
             self.tool_settings = ToolSettingsManager(Path("config/integrated_tools.json"))
@@ -95,6 +96,7 @@ def run(
             self.ai_assistant = self._build_ai_assistant()
             self.performance_monitor = PerformanceMonitorModel()
 
+            self._build_menu_bar()
             self._build_toolbar()
             self._build_shell()
             self._build_plugin_dock()
@@ -111,8 +113,37 @@ def run(
             if debug:
                 self.info_panel.addItem("Debug mode enabled")
 
+        def _build_menu_bar(self) -> None:
+            menubar = self.menuBar()
+
+            file_menu = menubar.addMenu("&File")
+            file_menu.addAction("New Project", self.create_new_project)
+            file_menu.addAction("Import Data", self._open_file_from_toolbar)
+            file_menu.addSeparator()
+            file_menu.addAction("Quick Start", self.open_quick_start)
+
+            analysis_menu = menubar.addMenu("&Analysis")
+            analysis_menu.addAction("Analysis Library", self.open_analysis_library)
+            analysis_menu.addAction("Pipeline Runner", self.open_pipeline_runner)
+            analysis_menu.addAction("AI Assistant", self.open_ai_assistant)
+
+            structure_menu = menubar.addMenu("&Structure")
+            structure_menu.addAction("Structure Tools", self.open_structure_tools)
+
+            plugin_menu = menubar.addMenu("&Plugins")
+            plugin_menu.addAction("Plugin Marketplace", self.show_plugin_marketplace)
+            plugin_menu.addAction("Search GitHub Plugins", self.search_plugins)
+
+            tools_menu = menubar.addMenu("&Tools")
+            tools_menu.addAction("Formulation Toolbox", self.open_formulation_toolbox)
+            tools_menu.addAction("Toolkit Settings", self.open_toolkit_settings)
+
+            help_menu = menubar.addMenu("&Help")
+            help_menu.addAction("Runtime Status", self.show_runtime_status_dialog)
+
         def _build_toolbar(self) -> None:
             toolbar = QToolBar("Main")
+            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             toolbar.setMovable(False)
             self.addToolBar(toolbar)
 
@@ -127,6 +158,7 @@ def run(
             quick_start_action = QAction("Quick Start", self)
             quick_start_action.triggered.connect(self.open_quick_start)
             toolbar.addAction(quick_start_action)
+            toolbar.addSeparator()
 
             color_action = QAction("Color", self)
             color_action.triggered.connect(self.choose_color)
@@ -140,6 +172,7 @@ def run(
             structure_action.triggered.connect(self.open_structure_tools)
             toolbar.addAction(structure_action)
 
+            toolbar.addSeparator()
             settings_action = QAction("Settings", self)
             settings_action.triggered.connect(self.open_toolkit_settings)
             toolbar.addAction(settings_action)
@@ -186,7 +219,10 @@ def run(
             default_project = project if project else Path(self.preferences.project_root)
             left.addWidget(QLabel(f"Project root: {default_project}"))
             left.addWidget(QLabel(f"Output dir: {self.preferences.output_dir}"))
-            left.addWidget(QLabel(self.r_status.message))
+            self.r_status_label = QLabel()
+            self.pymol_status_label = QLabel()
+            left.addWidget(self.r_status_label)
+            left.addWidget(self.pymol_status_label)
             hero_layout.addLayout(left, 2)
 
             right = QHBoxLayout()
@@ -256,6 +292,11 @@ def run(
             self.plugin_query.setToolTip("Find bioinformatics plugins. GitHub fallback supported.")
             plugin_layout.addWidget(self.plugin_query)
 
+            self.plugin_install_mode = QComboBox()
+            self.plugin_install_mode.addItems(["portable", "full"])
+            self.plugin_install_mode.setToolTip("portable = clone only, full = clone + pip install -e")
+            plugin_layout.addWidget(self.plugin_install_mode)
+
             plugin_search_btn = QPushButton("Search Plugins")
             plugin_search_btn.clicked.connect(self.search_plugins)
             plugin_layout.addWidget(plugin_search_btn)
@@ -289,6 +330,31 @@ def run(
             self.loading_dialog.setWindowModality(Qt.WindowModal)
             self.loading_dialog.setCancelButton(None)
             self.loading_dialog.close()
+            self._refresh_runtime_status_labels()
+
+        def _refresh_runtime_status_labels(self) -> None:
+            self.r_status = self.r_manager.detect_r()
+            self.pymol_status = detect_pymol()
+            self.r_status_label.setText(f"R: {'ready' if self.r_status.available else 'missing'} | {self.r_status.message}")
+            self.pymol_status_label.setText(
+                f"PyMOL: {'ready' if self.pymol_status.available else 'missing'} | {self.pymol_status.message}"
+            )
+
+        def show_runtime_status_dialog(self) -> None:
+            self._refresh_runtime_status_labels()
+            QMessageBox.information(
+                self,
+                "Runtime Status",
+                "\n".join(
+                    [
+                        f"R: {'ready' if self.r_status.available else 'missing'}",
+                        self.r_status.message,
+                        f"PyMOL: {'ready' if self.pymol_status.available else 'missing'}",
+                        self.pymol_status.message,
+                        "Install full mode (recommended for plugin deps): pip install -e .[gui,dev]",
+                    ]
+                ),
+            )
 
         def _update_performance_badge(self, focused: bool) -> None:
             state = self.performance_monitor.snapshot(focused=focused)
@@ -425,7 +491,8 @@ def run(
 
 
         def open_structure_tools(self) -> None:
-            status = detect_pymol()
+            self._refresh_runtime_status_labels()
+            status = self.pymol_status
             uid = "P69905"
             af_url = alphafold_prediction_url(uid)
             self.info_panel.addItem(status.message)
@@ -435,7 +502,9 @@ def run(
             msg.setWindowTitle("Structure Tools")
             msg.setText(
                 f"PyMOL: {'available' if status.available else 'not installed'}\n"
-                f"AlphaFold entry prepared for {uid}."
+                f"R: {'available' if self.r_status.available else 'not installed'}\n"
+                f"AlphaFold entry prepared for {uid}.\n"
+                "Tip: use full install mode for plugin/native dependencies."
             )
             open_btn = msg.addButton("Open AlphaFold", QMessageBox.AcceptRole)
             msg.addButton("Close", QMessageBox.RejectRole)
@@ -962,11 +1031,6 @@ def run(
                 lambda: self.aggregator.search_all(PluginQuery(query, limit=25)),
             )
             self.plugin_results.clear()
-            if not manifests and ("/" in query or query.startswith("http")):
-                gh = self.aggregator.import_from_github(query)
-                self.plugin_results.addItem(f"{gh.id} | {gh.description}")
-                self.statusBar().showMessage("GitHub fallback entry created", 3000)
-                return
             for item in manifests:
                 self.plugin_results.addItem(f"{item.id} | {item.version} | {item.description}")
             self.statusBar().showMessage(f"Found {len(manifests)} plugin candidates", 3000)
@@ -976,10 +1040,12 @@ def run(
             if raw.startswith("github:"):
                 manifest = self.aggregator.import_from_github(raw.replace("github:", ""))
             else:
-                QMessageBox.information(self, "Install", "MVP install currently supports GitHub fallback entries.")
+                QMessageBox.information(self, "Install", "Select a GitHub plugin result to install.")
                 return
-            self.registry.install_manifest(manifest)
-            self.statusBar().showMessage(f"Installed {manifest.id}", 3500)
+
+            mode = self.plugin_install_mode.currentText() if hasattr(self, "plugin_install_mode") else "portable"
+            target = self.registry.install_github_plugin(manifest, Path("plugins"), mode=mode)
+            self.statusBar().showMessage(f"Installed {manifest.id} -> {target.name} ({mode})", 5000)
 
     app = QApplication(sys.argv)
 
