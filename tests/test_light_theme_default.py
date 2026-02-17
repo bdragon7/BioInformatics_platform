@@ -1,9 +1,9 @@
 from pathlib import Path
 
 
-def test_default_theme_is_light() -> None:
+def test_default_theme_is_dark_pharmaceutical() -> None:
     app_source = Path('src/bioplatform/gui/app.py').read_text(encoding='utf-8')
-    assert 'win.apply_theme("light")' in app_source
+    assert 'win.apply_theme("dark_pharmaceutical")' in app_source
 
 
 def test_light_theme_uses_chromeos_like_beige_palette() -> None:

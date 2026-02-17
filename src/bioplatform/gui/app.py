@@ -147,6 +147,12 @@ def run(
             toolbar.setMovable(False)
             self.addToolBar(toolbar)
 
+            def add_group_label(text: str) -> None:
+                label = QLabel(text)
+                label.setObjectName("SectionTitle")
+                toolbar.addWidget(label)
+
+            add_group_label("File")
             new_project_action = QAction("New Project", self)
             new_project_action.triggered.connect(self.create_new_project)
             toolbar.addAction(new_project_action)
@@ -160,6 +166,7 @@ def run(
             toolbar.addAction(quick_start_action)
             toolbar.addSeparator()
 
+            add_group_label("Workspace")
             color_action = QAction("Color", self)
             color_action.triggered.connect(self.choose_color)
             toolbar.addAction(color_action)
@@ -173,6 +180,7 @@ def run(
             toolbar.addAction(structure_action)
 
             toolbar.addSeparator()
+            add_group_label("Analysis")
             settings_action = QAction("Settings", self)
             settings_action.triggered.connect(self.open_toolkit_settings)
             toolbar.addAction(settings_action)
@@ -233,6 +241,7 @@ def run(
 
             self.theme_combo = QComboBox()
             self.theme_combo.addItems(list(THEMES.keys()))
+            self.theme_combo.setCurrentText("dark_pharmaceutical")
             self.theme_combo.currentTextChanged.connect(self.apply_theme)
             self.theme_combo.setToolTip("Instant theme switch.")
             right.addWidget(self.theme_combo)
@@ -1050,21 +1059,21 @@ def run(
     app = QApplication(sys.argv)
 
     splash_pixmap = QPixmap(520, 280)
-    splash_pixmap.fill(QColor("#efe7d8"))
+    splash_pixmap.fill(QColor("#1A1C1E"))
     painter = QPainter(splash_pixmap)
-    painter.setPen(QColor("#3a3128"))
+    painter.setPen(QColor("#E0E2EB"))
     painter.drawText(40, 130, "Bioinformatics Studio")
-    painter.setPen(QColor("#6f6251"))
+    painter.setPen(QColor("#A9ABB3"))
     painter.drawText(40, 165, "Loading modules, plugins, and workspace…")
     painter.end()
     splash = QSplashScreen(splash_pixmap)
     splash.show()
-    splash.showMessage("Starting application…", Qt.AlignBottom | Qt.AlignLeft, QColor("#3a3128"))
+    splash.showMessage("Starting application…", Qt.AlignBottom | Qt.AlignLeft, QColor("#E0E2EB"))
     app.processEvents()
 
     win = MainWindow()
     win.resize(1440, 860)
-    win.apply_theme("light")
+    win.apply_theme("dark_pharmaceutical")
     win.show()
     splash.finish(win)
     return app.exec()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .schrodinger_md3_theme import build_schrodinger_md3_stylesheet
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -81,4 +83,9 @@ QLabel#AppHeading, QLabel#SectionTitle { color: #fff; font-weight: 700; }
 """,
 )
 
-THEMES = {t.name: t for t in [LIGHT, DARK, HIGH_CONTRAST]}
+DARK_PHARMACEUTICAL = Theme(
+    name="dark_pharmaceutical",
+    stylesheet=build_schrodinger_md3_stylesheet(),
+)
+
+THEMES = {t.name: t for t in [LIGHT, DARK, HIGH_CONTRAST, DARK_PHARMACEUTICAL]}

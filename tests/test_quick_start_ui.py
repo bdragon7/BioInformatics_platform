@@ -18,3 +18,9 @@ def test_app_menu_and_runtime_hooks_present() -> None:
 def test_app_enables_builtin_plugin_seeding() -> None:
     source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
     assert "seed_builtins=True" in source
+
+
+def test_app_defaults_to_dark_pharmaceutical_theme() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert 'win.apply_theme("dark_pharmaceutical")' in source
+    assert 'self.theme_combo.setCurrentText("dark_pharmaceutical")' in source
