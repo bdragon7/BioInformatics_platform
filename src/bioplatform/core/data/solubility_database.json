@@ -1,0 +1,26 @@
+{
+  "glycerol": {
+    "solubility_g_l_25c": 1000.0,
+    "temp_coeff_per_c": 0.001
+  },
+  "sodium chloride": {
+    "solubility_g_l_25c": 359.0,
+    "temp_coeff_per_c": 0.0004
+  },
+  "benzalkonium chloride": {
+    "solubility_g_l_25c": 500.0,
+    "temp_coeff_per_c": 0.0008
+  },
+  "chlorhexidine": {
+    "solubility_g_l_25c": 80.0,
+    "temp_coeff_per_c": 0.0005
+  },
+  "citric acid": {
+    "solubility_g_l_25c": 592.0,
+    "temp_coeff_per_c": 0.0015
+  },
+  "sodium hypochlorite": {
+    "solubility_g_l_25c": 200.0,
+    "temp_coeff_per_c": -0.0003
+  }
+}

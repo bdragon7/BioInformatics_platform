@@ -1,0 +1,5 @@
+{
+  "id": "structure.pymol_bridge",
+  "name": "PyMOL Structural Bridge",
+  "description": "Built-in PyMOL integration plugin with install/status helpers"
+}

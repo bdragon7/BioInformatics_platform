@@ -1,0 +1,1233 @@
+from __future__ import annotations
+
+import re
+import sys
+import webbrowser
+from pathlib import Path
+
+from ..core.chemical_toolbox import ChemicalToolbox
+from ..core.data_cleaning import lof_outliers
+from ..core.error_handling import WorkplaceErrorHandler
+from ..core.preferences import PreferencesManager, UserPreferences
+from ..core.structure_integration import alphafold_prediction_url
+from ..core.workspace import WorkspaceManager
+from ..integration.unified_system import UnifiedBioInformaticsSystem
+from ..llm.doe_assistant import DoEAssistant
+from ..plotting.visual_plot_builder import PlotConfiguration, PlotType
+from ..plugins.microbiology_plugin import MicrobiologyPlugin
+from ..plugins.toolkit_integrator import ToolkitIntegratorPlugin, ToolSettingsManager
+from ..services import AnalysisService, IntegrationService, PluginService, WorkspaceService
+from .color_tools import PaletteStore, pick_color
+from .data_table import create_data_viewer_widget
+from .formulation import open_formulation_designer
+from .performance_monitor import PerformanceMonitorModel
+from .themes import THEMES
+
+
+def run(
+    project: Path | None = None,
+    data: Path | None = None,
+    workflow: str | None = None,
+    debug: bool = False,
+) -> int:
+    try:
+        from PySide6.QtCore import QObject, Qt, QThread, Signal
+        from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPixmap, QShortcut
+        from PySide6.QtWidgets import (
+            QApplication,
+            QCheckBox,
+            QComboBox,
+            QDialog,
+            QDockWidget,
+            QFileDialog,
+            QFormLayout,
+            QFrame,
+            QHBoxLayout,
+            QInputDialog,
+            QLabel,
+            QLineEdit,
+            QListWidget,
+            QListWidgetItem,
+            QMainWindow,
+            QMessageBox,
+            QPlainTextEdit,
+            QProgressBar,
+            QProgressDialog,
+            QPushButton,
+            QSplashScreen,
+            QSplitter,
+            QTabWidget,
+            QTextEdit,
+            QToolBar,
+            QVBoxLayout,
+            QWidget,
+        )
+    except Exception:
+        print("PySide6 is not installed. Install with: pip install '.[gui]'")
+        return 1
+
+    DataViewerWidget = create_data_viewer_widget()
+
+
+
+    class PluginSearchWorker(QObject):
+        finished = Signal(list, str)
+        failed = Signal(str)
+
+        def __init__(self, plugin_service: PluginService, query_text: str, limit: int = 25) -> None:
+            super().__init__()
+            self.plugin_service = plugin_service
+            self.query_text = query_text
+            self.limit = limit
+
+        def run(self) -> None:
+            try:
+                manifests = self.plugin_service.search(self.query_text, limit=self.limit)
+                self.finished.emit(manifests, self.query_text)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+
+    class MainWindow(QMainWindow):
+        def __init__(self) -> None:
+            super().__init__()
+            self.setWindowTitle("Bioinformatics Studio")
+            self.setMinimumSize(1180, 760)
+            self.setAcceptDrops(True)
+
+            self.plugin_service = PluginService.default()
+            self.palette_store = PaletteStore()
+            self.integration_service = IntegrationService.default(Path.cwd())
+            self.r_status = self.integration_service.detect_r()
+            self.pymol_status = self.integration_service.detect_pymol()
+            self.microbiology_plugin = MicrobiologyPlugin()
+            self.toolkit_integrator = ToolkitIntegratorPlugin()
+            self.tool_settings = ToolSettingsManager(Path("config/integrated_tools.json"))
+            self.preferences_manager = PreferencesManager(Path("config/user_preferences.json"))
+            self.preferences = self.preferences_manager.load()
+            Path(self.preferences.project_root).mkdir(parents=True, exist_ok=True)
+            Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
+            self.workspace_service = WorkspaceService.from_root(Path(self.preferences.project_root))
+            self.workspace_manager = self.workspace_service.manager
+            self.analysis_service = AnalysisService.default()
+            self.analysis_library = self.analysis_service.analysis_library
+            self.pipeline_engine = self.analysis_service.pipeline_engine
+            self.chemical_toolbox = ChemicalToolbox()
+            self.ai_assistant = self._build_ai_assistant()
+            self.performance_monitor = PerformanceMonitorModel()
+            self.unified_system = UnifiedBioInformaticsSystem()
+            self.error_handler = WorkplaceErrorHandler()
+            self._plugin_search_thread: QThread | None = None
+            self._plugin_search_worker: PluginSearchWorker | None = None
+
+            self._build_menu_bar()
+            self._build_toolbar()
+            self._build_shell()
+            self._build_plugin_dock()
+            self._build_progress_widgets()
+            self._bind_shortcuts()
+
+            self.statusBar().showMessage("Ready")
+
+            if data:
+                self._execute_with_progress("Loading startup data", lambda: self.data_viewer.load_file(data))
+                self.statusBar().showMessage(f"Loaded data: {data}")
+            if workflow:
+                self.info_panel.addItem(f"Requested workflow: {workflow}")
+            if debug:
+                self.info_panel.addItem("Debug mode enabled")
+
+        def _build_menu_bar(self) -> None:
+            menubar = self.menuBar()
+
+            file_menu = menubar.addMenu("&File")
+            file_menu.addAction("New Project", self.create_new_project)
+            file_menu.addAction("Import Data", self._open_file_from_toolbar)
+            file_menu.addSeparator()
+            file_menu.addAction("Quick Start", self.open_quick_start)
+
+            analysis_menu = menubar.addMenu("&Analysis")
+            analysis_menu.addAction("Analysis Library", self.open_analysis_library)
+            analysis_menu.addAction("Pipeline Runner", self.open_pipeline_runner)
+            analysis_menu.addAction("AI Assistant", self.open_ai_assistant)
+            analysis_menu.addAction("Visual Plot Builder", self.open_visual_plot_builder)
+
+            structure_menu = menubar.addMenu("&Structure")
+            structure_menu.addAction("Structure Tools", self.open_structure_tools)
+
+            plugin_menu = menubar.addMenu("&Plugins")
+            plugin_menu.addAction("Plugin Marketplace", self.show_plugin_marketplace)
+            plugin_menu.addAction("Search GitHub Plugins", self.search_plugins)
+
+            tools_menu = menubar.addMenu("&Tools")
+            tools_menu.addAction("Formulation Toolbox", self.open_formulation_toolbox)
+            tools_menu.addAction("Toolkit Settings", self.open_toolkit_settings)
+            tools_menu.addAction("Dual Console", self.open_dual_console)
+            tools_menu.addAction("System Log Viewer", self.open_system_log_viewer)
+
+            help_menu = menubar.addMenu("&Help")
+            help_menu.addAction("Runtime Status", self.show_runtime_status_dialog)
+
+        def _build_toolbar(self) -> None:
+            toolbar = QToolBar("Main")
+            toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+            toolbar.setMovable(False)
+            self.addToolBar(toolbar)
+
+            def add_group_label(text: str) -> None:
+                label = QLabel(text.upper())
+                label.setObjectName("SectionTitle")
+                label.setStyleSheet("font-size: 9px; color: #5C5F66; font-weight: 600; padding: 0 4px;")
+                toolbar.addWidget(label)
+
+            add_group_label("Project")
+            new_project_action = QAction("New Project", self)
+            new_project_action.triggered.connect(self.create_new_project)
+            toolbar.addAction(new_project_action)
+
+            import_action = QAction("Import", self)
+            import_action.triggered.connect(self._open_file_from_toolbar)
+            toolbar.addAction(import_action)
+
+            quick_start_action = QAction("Quick Start", self)
+            quick_start_action.triggered.connect(self.open_quick_start)
+            toolbar.addAction(quick_start_action)
+            toolbar.addSeparator()
+
+            add_group_label("Views")
+            color_action = QAction("Color", self)
+            color_action.triggered.connect(self.choose_color)
+            toolbar.addAction(color_action)
+
+            structure_action = QAction("Structure", self)
+            structure_action.triggered.connect(self.open_structure_tools)
+            toolbar.addAction(structure_action)
+            toolbar.addSeparator()
+
+            add_group_label("Tools")
+            analysis_lib_action = QAction("Analysis Library", self)
+            analysis_lib_action.triggered.connect(self.open_analysis_library)
+            toolbar.addAction(analysis_lib_action)
+
+            pipeline_action = QAction("Pipelines", self)
+            pipeline_action.triggered.connect(self.open_pipeline_runner)
+            toolbar.addAction(pipeline_action)
+
+            chemistry_action = QAction("Formulation Toolbox", self)
+            chemistry_action.triggered.connect(self.open_formulation_toolbox)
+            toolbar.addAction(chemistry_action)
+            toolbar.addSeparator()
+
+            add_group_label("Actions")
+            designer_action = QAction("New Formulation", self)
+            designer_action.triggered.connect(self.open_formulation_designer_wizard)
+            toolbar.addAction(designer_action)
+            toolbar.addSeparator()
+
+            add_group_label("System")
+            ai_action = QAction("AI Assistant", self)
+            ai_action.triggered.connect(self.open_ai_assistant)
+            toolbar.addAction(ai_action)
+
+            settings_action = QAction("Settings", self)
+            settings_action.triggered.connect(self.open_toolkit_settings)
+            toolbar.addAction(settings_action)
+
+            plugin_action = QAction("Plugins", self)
+            plugin_action.triggered.connect(self.show_plugin_marketplace)
+            toolbar.addAction(plugin_action)
+
+            toolbar.addSeparator()
+            header = QLabel("Bioinformatics Studio")
+            header.setObjectName("AppHeading")
+            toolbar.addWidget(header)
+
+        def _build_shell(self) -> None:
+            shell = QWidget(self)
+            shell_layout = QVBoxLayout(shell)
+            shell_layout.setContentsMargins(10, 10, 10, 10)
+            shell_layout.setSpacing(10)
+
+            hero = QFrame()
+            hero.setObjectName("Card")
+            hero_layout = QHBoxLayout(hero)
+
+            left = QVBoxLayout()
+            title = QLabel("Research Workspace")
+            title.setObjectName("SectionTitle")
+            left.addWidget(title)
+            default_project = project if project else Path(self.preferences.project_root)
+            left.addWidget(QLabel(f"Project root: {default_project}"))
+            left.addWidget(QLabel(f"Output dir: {self.preferences.output_dir}"))
+            self.r_status_label = QLabel()
+            self.pymol_status_label = QLabel()
+            left.addWidget(self.r_status_label)
+            left.addWidget(self.pymol_status_label)
+            hero_layout.addLayout(left, 2)
+
+            right = QHBoxLayout()
+            self.global_search = QLineEdit()
+            self.global_search.setPlaceholderText("Search commands, files, analyses (Ctrl+K)")
+            self.global_search.setToolTip("Global quick search command bar.")
+            right.addWidget(self.global_search)
+
+            self.theme_combo = QComboBox()
+            self.theme_combo.addItems(list(THEMES.keys()))
+            self.theme_combo.setCurrentText("dark_pharmaceutical")
+            self.theme_combo.currentTextChanged.connect(self.apply_theme)
+            self.theme_combo.setToolTip("Instant theme switch.")
+            right.addWidget(self.theme_combo)
+
+            color_btn = QPushButton("Pick Color")
+            color_btn.setToolTip("Open scientific color picker with alpha support.")
+            color_btn.clicked.connect(self.choose_color)
+            right.addWidget(color_btn)
+
+            hero_layout.addLayout(right, 3)
+            shell_layout.addWidget(hero)
+
+            main_splitter = QSplitter(Qt.Horizontal)
+
+            nav = QListWidget()
+            nav.addItems([
+                "📊 Data",
+                "🔬 Analysis",
+                "📈 Visualizations",
+                "🧪 Microbiology",
+                "🧬 Biophysics",
+                "📦 Plugins",
+                "⚙️ Settings",
+            ])
+            nav.setMaximumWidth(240)
+            nav.currentTextChanged.connect(self._on_nav_change)
+            nav.setCurrentRow(0)
+            main_splitter.addWidget(nav)
+
+            self.data_viewer = DataViewerWidget()
+            self.data_viewer.selection_changed.connect(self._on_selection_count)
+            main_splitter.addWidget(self.data_viewer)
+
+            side = QFrame()
+            side.setObjectName("Card")
+            side_layout = QVBoxLayout(side)
+            info_title = QLabel("Inspector")
+            info_title.setObjectName("SectionTitle")
+            side_layout.addWidget(info_title)
+
+            self.info_panel = QListWidget()
+            self.info_panel.addItem("Selection summary appears here.")
+            side_layout.addWidget(self.info_panel)
+            main_splitter.addWidget(side)
+            main_splitter.setSizes([190, 900, 280])
+
+            self.terminal_tabs = QTabWidget()
+            self.terminal_tabs.setObjectName("TerminalTabs")
+            self.terminal_tabs.addTab(QTextEdit(), "🐍 Python")
+            self.terminal_tabs.addTab(QTextEdit(), "📊 R")
+            self.terminal_tabs.addTab(QTextEdit(), "💻 System")
+            self.terminal_tabs.addTab(QTextEdit(), "📄 Log")
+            self.terminal_tabs.addTab(QTextEdit(), "📤 Output")
+
+            term_toolbar = QFrame()
+            term_toolbar_layout = QHBoxLayout(term_toolbar)
+            term_toolbar_layout.setContentsMargins(6, 4, 6, 4)
+            for txt in ["⏹ Interrupt", "🔄 Restart", "🗑 Clear"]:
+                b = QPushButton(txt)
+                term_toolbar_layout.addWidget(b)
+            term_toolbar_layout.addStretch()
+            for txt in ["⫶ Split", "⚙ Settings"]:
+                b = QPushButton(txt)
+                term_toolbar_layout.addWidget(b)
+
+            terminal_container = QWidget()
+            terminal_layout = QVBoxLayout(terminal_container)
+            terminal_layout.setContentsMargins(0, 0, 0, 0)
+            terminal_layout.setSpacing(0)
+            terminal_layout.addWidget(term_toolbar)
+            terminal_layout.addWidget(self.terminal_tabs)
+
+            self.vertical_splitter = QSplitter(Qt.Vertical)
+            self.vertical_splitter.addWidget(main_splitter)
+            self.vertical_splitter.addWidget(terminal_container)
+            self.vertical_splitter.setSizes([760, 220])
+
+            shell_layout.addWidget(self.vertical_splitter)
+            self.setCentralWidget(shell)
+
+        def _build_plugin_dock(self) -> None:
+            plugin_dock = QDockWidget("Plugin Manager", self)
+            plugin_widget = QWidget()
+            plugin_layout = QVBoxLayout(plugin_widget)
+
+            self.plugin_query = QLineEdit()
+            self.plugin_query.setPlaceholderText("Search CRAN/Bioconductor or paste GitHub repo")
+            self.plugin_query.setToolTip("Find bioinformatics plugins. GitHub fallback supported.")
+            plugin_layout.addWidget(self.plugin_query)
+
+            self.plugin_install_mode = QComboBox()
+            self.plugin_install_mode.addItems(["portable", "full"])
+            self.plugin_install_mode.setToolTip("portable = clone only, full = clone + pip install -e")
+            plugin_layout.addWidget(self.plugin_install_mode)
+
+            plugin_search_btn = QPushButton("Search Plugins")
+            plugin_search_btn.clicked.connect(self.search_plugins)
+            plugin_layout.addWidget(plugin_search_btn)
+
+            self.plugin_results = QListWidget()
+            self.plugin_results.itemDoubleClicked.connect(self.install_selected)
+            plugin_layout.addWidget(self.plugin_results)
+
+            plugin_dock.setWidget(plugin_widget)
+            self.addDockWidget(Qt.RightDockWidgetArea, plugin_dock)
+
+        def _bind_shortcuts(self) -> None:
+            QShortcut(QKeySequence("Ctrl+K"), self, activated=self.open_command_palette)
+            QShortcut(QKeySequence("Ctrl+L"), self, activated=self._clear_info)
+            QShortcut(QKeySequence("Ctrl+`"), self, activated=self.toggle_terminal_panel)
+            QShortcut(QKeySequence("Ctrl+1"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(0) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+2"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(1) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+3"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(2) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+4"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(3) if hasattr(self, "terminal_tabs") else None)
+            QShortcut(QKeySequence("Ctrl+5"), self, activated=lambda: self.terminal_tabs.setCurrentIndex(4) if hasattr(self, "terminal_tabs") else None)
+
+        def toggle_terminal_panel(self) -> None:
+            if not hasattr(self, "vertical_splitter"):
+                return
+            top, bottom = self.vertical_splitter.sizes()
+            if bottom < 60:
+                self.vertical_splitter.setSizes([760, 220])
+            else:
+                self.vertical_splitter.setSizes([960, 32])
+
+        def _build_progress_widgets(self) -> None:
+            self.task_progress = QProgressBar(self)
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(0)
+            self.task_progress.setFixedWidth(220)
+            self.task_progress.setFormat("Idle")
+            self.statusBar().addPermanentWidget(self.task_progress)
+
+            self.performance_badge = QLabel("")
+            self.performance_badge.setObjectName("PerformanceBadge")
+            self.statusBar().addPermanentWidget(self.performance_badge)
+            self._update_performance_badge(focused=True)
+
+            self.loading_dialog = QProgressDialog("Loading...", None, 0, 0, self)
+            self.loading_dialog.setWindowTitle("Please wait")
+            self.loading_dialog.setWindowModality(Qt.WindowModal)
+            self.loading_dialog.setCancelButton(None)
+            self.loading_dialog.close()
+            self._refresh_runtime_status_labels()
+
+        def _refresh_runtime_status_labels(self) -> None:
+            self.r_status = self.integration_service.detect_r()
+            self.pymol_status = self.integration_service.detect_pymol()
+            self.r_status_label.setText(f"R: {'ready' if self.r_status.available else 'missing'} | {self.r_status.message}")
+            self.pymol_status_label.setText(
+                f"PyMOL: {'ready' if self.pymol_status.available else 'missing'} | {self.pymol_status.message}"
+            )
+
+        def show_runtime_status_dialog(self) -> None:
+            self._refresh_runtime_status_labels()
+            QMessageBox.information(
+                self,
+                "Runtime Status",
+                "\n".join(
+                    [
+                        f"R: {'ready' if self.r_status.available else 'missing'}",
+                        self.r_status.message,
+                        f"PyMOL: {'ready' if self.pymol_status.available else 'missing'}",
+                        self.pymol_status.message,
+                        "Install full mode (recommended for plugin deps): pip install -e .[gui,dev]",
+                    ]
+                ),
+            )
+
+        def _update_performance_badge(self, focused: bool) -> None:
+            state = self.performance_monitor.snapshot(focused=focused)
+            self.performance_badge.setText(state.message)
+            self.performance_badge.setStyleSheet(
+                f"QLabel#PerformanceBadge {{ color: {state.color_hex}; font-weight: 600; padding: 2px 8px; }}"
+            )
+
+        def focusInEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            self._update_performance_badge(focused=True)
+            super().focusInEvent(event)
+
+        def focusOutEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            self._update_performance_badge(focused=False)
+            super().focusOutEvent(event)
+
+        def _execute_with_progress(self, label: str, task) -> object:  # type: ignore[no-untyped-def]
+            self.task_progress.setRange(0, 0)
+            self.task_progress.setFormat(label)
+            self.loading_dialog.setLabelText(f"{label}…")
+            self.loading_dialog.show()
+            QApplication.processEvents()
+            try:
+                return task()
+            finally:
+                self.loading_dialog.hide()
+                self.task_progress.setRange(0, 100)
+                self.task_progress.setValue(100)
+                self.task_progress.setFormat(f"{label} complete")
+
+        def _run_command_palette_action(self, command: str) -> None:
+            handlers = {
+                "Create New Project": self.create_new_project,
+                "Import Data": self._open_file_from_toolbar,
+                "Open Quick Start": self.open_quick_start,
+                "Open Plugin Marketplace": self.show_plugin_marketplace,
+                "Run Microbiology Auto-Analysis": self.run_microbiology_auto_analysis,
+                "Open AlphaFold entry": self.open_structure_tools,
+                "Check PyMOL integration": self.open_structure_tools,
+                "Open Analysis Library": self.open_analysis_library,
+                "Open Pipeline Runner": self.open_pipeline_runner,
+                "Open Formulation Toolbox": self.open_formulation_toolbox,
+                "Open New Formulation Wizard": self.open_formulation_designer_wizard,
+                "Open AI Assistant": self.open_ai_assistant,
+                "Switch Theme": lambda: self.statusBar().showMessage("Use the theme dropdown in the header.", 3500),
+                "Open Local FASTA": lambda: self.statusBar().showMessage("Use Import to open a FASTA file.", 3500),
+                "Run QC Checks": lambda: self.statusBar().showMessage("QC workflow hook will be added in a future update.", 3500),
+            }
+            action = handlers.get(command)
+            if action:
+                action()
+
+        def open_command_palette(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Command Palette")
+            layout = QVBoxLayout(dlg)
+            search = QLineEdit()
+            search.setPlaceholderText("Type a command...")
+            layout.addWidget(search)
+            lst = QListWidget()
+            commands = [
+                "Create New Project",
+                "Import Data",
+                "Open Quick Start",
+                "Open Plugin Marketplace",
+                "Switch Theme",
+                "Open Local FASTA",
+                "Run QC Checks",
+                "Run Microbiology Auto-Analysis",
+                "Open AlphaFold entry",
+                "Check PyMOL integration",
+                "Open Analysis Library",
+                "Open Pipeline Runner",
+                "Open Formulation Toolbox",
+                "Open New Formulation Wizard",
+                "Open AI Assistant",
+            ]
+            for cmd in commands:
+                lst.addItem(cmd)
+            layout.addWidget(lst)
+
+            def do_filter(txt: str) -> None:
+                for i in range(lst.count()):
+                    it = lst.item(i)
+                    it.setHidden(txt.lower() not in it.text().lower())
+
+            def execute_selected() -> None:
+                item = lst.currentItem()
+                if item is None:
+                    return
+                self._run_command_palette_action(item.text())
+                dlg.accept()
+
+            search.textChanged.connect(do_filter)
+            lst.itemActivated.connect(lambda item: (self._run_command_palette_action(item.text()), dlg.accept()))
+            search.returnPressed.connect(execute_selected)
+            search.setFocus()
+            dlg.resize(420, 320)
+            dlg.exec()
+
+        def dragEnterEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            if event.mimeData().hasUrls():
+                event.acceptProposedAction()
+
+        def dropEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+            urls = event.mimeData().urls()
+            if not urls:
+                return
+            path = Path(urls[0].toLocalFile())
+            self.intelligent_analysis_suggestion(path)
+
+
+        def _on_nav_change(self, section: str) -> None:
+            self.statusBar().showMessage(f"Section: {section}", 2000)
+            if "Microbiology" in section:
+                self.run_microbiology_auto_analysis()
+            if "Settings" in section:
+                self.open_toolkit_settings()
+
+        def run_microbiology_auto_analysis(self) -> None:
+            sample_payload = {"mode": "growth", "time_hours": [0, 2, 4, 6], "od600": [0.03, 0.05, 0.18, 0.42]}
+            result = self._execute_with_progress(
+                "Running microbiology analysis",
+                lambda: self.microbiology_plugin.execute_logic(sample_payload),
+            )
+            self.info_panel.addItem(
+                f"Microbiology μmax={result['mu_max']:.3f}, K={result['carrying_capacity']:.3f}, lag={result['lag_phase_hours']}h"
+            )
+            outliers = lof_outliers([0.03, 0.05, 0.18, 0.42])
+            if outliers:
+                self.info_panel.addItem(f"LOF outliers (indices): {outliers}")
+            if result["flags"]:
+                self.statusBar().showMessage(result["flags"][0], 5000)
+
+
+        def open_structure_tools(self) -> None:
+            self._refresh_runtime_status_labels()
+            status = self.pymol_status
+            uid = "P69905"
+            af_url = alphafold_prediction_url(uid)
+            self.info_panel.addItem(status.message)
+            self.info_panel.addItem(f"AlphaFold quick link: {af_url}")
+
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Structure Tools")
+            msg.setText(
+                f"PyMOL: {'available' if status.available else 'not installed'}\n"
+                f"R: {'available' if self.r_status.available else 'not installed'}\n"
+                f"AlphaFold entry prepared for {uid}.\n"
+                "Tip: use full install mode for plugin/native dependencies."
+            )
+            open_btn = msg.addButton("Open AlphaFold", QMessageBox.AcceptRole)
+            msg.addButton("Close", QMessageBox.RejectRole)
+            msg.exec()
+            if msg.clickedButton() == open_btn:
+                webbrowser.open(af_url)
+
+        def open_analysis_library(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Analysis Library (R + Python)")
+            layout = QVBoxLayout(dlg)
+
+            layout.addWidget(QLabel("Curated function catalog for bioinformatics/genomics/pharmacology/microbiology"))
+            items = QListWidget()
+            catalog = self.analysis_library.catalog()
+            for item in catalog:
+                items.addItem(f"{item.func_id} | {item.language} | {item.domain} | {item.title}")
+            layout.addWidget(items)
+
+            input_line = QLineEdit()
+            input_line.setPlaceholderText("Numeric payload for Python functions (comma separated): e.g. 1,2,3")
+            layout.addWidget(input_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Run/Preview")
+
+            def run_selected() -> None:
+                row = items.currentRow()
+                if row < 0:
+                    output.setPlainText("Select a function from the catalog.")
+                    return
+                selected = catalog[row]
+                if selected.language == "python":
+                    try:
+                        values = [float(x.strip()) for x in input_line.text().split(",") if x.strip()]
+                    except Exception:
+                        output.setPlainText("Invalid numeric payload.")
+                        return
+                    try:
+                        result = self.analysis_library.execute_python(selected.func_id, values)
+                        output.setPlainText(f"Python result: {result}")
+                    except Exception as exc:
+                        output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
+                else:
+                    try:
+                        tpl = self.analysis_library.r_template(selected.func_id)
+                        output.setPlainText(tpl)
+                    except Exception as exc:
+                        output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
+
+            run_btn.clicked.connect(run_selected)
+            layout.addWidget(run_btn)
+            dlg.resize(920, 620)
+            dlg.exec()
+
+        def open_pipeline_runner(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Python/R Pipeline Runner")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Pipeline: clean → stats → figure (editable export)"))
+
+            input_line = QLineEdit()
+            input_line.setPlaceholderText("Values (comma separated), e.g. 0.1,0.2,0.3,1.1")
+            layout.addWidget(input_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Run Pipeline")
+            export_btn = QPushButton("Export Figure (PNG/SVG/PDF)")
+            export_btn.setEnabled(False)
+            r_template_btn = QPushButton("Show R Pipeline Template")
+
+            state: dict[str, object] = {"result": None}
+
+            def run_pipeline() -> None:
+                try:
+                    values = [float(x.strip()) for x in input_line.text().split(",") if x.strip()]
+                except Exception:
+                    output.setPlainText("Invalid numeric input.")
+                    return
+                result = self._execute_with_progress("Running pipeline", lambda: self.pipeline_engine.run_growth_pipeline(values))
+                state["result"] = result
+                export_btn.setEnabled(result.figure is not None)
+                output.setPlainText(
+                    "Pipeline complete\n"
+                    f"Cleaned: {result.cleaned}\n"
+                    f"Stats: {result.stats}\n"
+                    f"Outliers: {result.outliers}\n"
+                    f"Figure ready: {'yes' if result.figure is not None else 'no (matplotlib missing)'}"
+                )
+
+            def export_figure() -> None:
+                result = state.get("result")
+                if result is None:
+                    output.setPlainText("Run pipeline first.")
+                    return
+                target, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "Export pipeline figure",
+                    str(Path(self.preferences.output_dir) / "pipeline_plot"),
+                    "PNG file (*.png)",
+                )
+                if not target:
+                    return
+                exported = self.pipeline_engine.export_figure_high_quality(result.figure, Path(target).with_suffix(""))
+                output.appendPlainText(f"Exported: {exported}")
+
+            def show_r_template() -> None:
+                output.setPlainText(self.pipeline_engine.r_pipeline_template())
+
+            run_btn.clicked.connect(run_pipeline)
+            export_btn.clicked.connect(export_figure)
+            r_template_btn.clicked.connect(show_r_template)
+            layout.addWidget(run_btn)
+            layout.addWidget(export_btn)
+            layout.addWidget(r_template_btn)
+
+            dlg.resize(900, 620)
+            dlg.exec()
+
+        def open_quick_start(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Quick Start (Office-style)")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Choose a common workflow to get started quickly."))
+
+            actions = [
+                ("Create New Project", self.create_new_project),
+                ("Import Data", self._open_file_from_toolbar),
+                ("Formulation Toolbox", self.open_formulation_toolbox),
+                ("Pipeline Runner", self.open_pipeline_runner),
+                ("AI Assistant", self.open_ai_assistant),
+            ]
+
+            for title, handler in actions:
+                btn = QPushButton(title)
+                btn.clicked.connect(lambda _checked=False, h=handler: (dlg.accept(), h()))
+                layout.addWidget(btn)
+
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(dlg.accept)
+            layout.addWidget(close_btn)
+            dlg.resize(420, 360)
+            dlg.exec()
+
+
+        def open_visual_plot_builder(self) -> None:
+            config = PlotConfiguration(
+                plot_type=PlotType.SCATTER,
+                data_source="example.csv",
+                x_column="x",
+                y_column="y",
+                title="Preview Scatter",
+            )
+            code = self.unified_system.on_plot_requested(config)
+            self.info_panel.addItem("Visual Plot Builder: generated matplotlib script preview.")
+            self.info_panel.addItem(code.splitlines()[0])
+            self.statusBar().showMessage("Visual Plot Builder script generated", 3000)
+
+        def open_dual_console(self) -> None:
+            self.unified_system.console.run_python("print('hello from python console')")
+            self.unified_system.console.run_r("print('hello from r console')")
+            self.info_panel.addItem("Dual Console ready: Python + R sessions attached.")
+            self.statusBar().showMessage("Dual Console initialized", 3000)
+
+        def open_system_log_viewer(self) -> None:
+            self.unified_system.verify_system()
+            entries = self.unified_system.logger.recent(limit=3)
+            self.info_panel.addItem("System Log Viewer: recent diagnostics captured.")
+            for entry in entries:
+                self.info_panel.addItem(f"{entry.level} {entry.message}")
+            self.statusBar().showMessage("System logs refreshed", 3000)
+
+        def _build_ai_assistant(self) -> DoEAssistant:
+            provider = self.preferences.ai_provider if self.preferences.ai_provider in {"chatgpt", "gemini", "local"} else "chatgpt"
+            api_key = self.preferences.openai_api_key if provider == "chatgpt" else self.preferences.gemini_api_key if provider == "gemini" else None
+            return DoEAssistant(provider=provider, api_key=api_key or None)
+
+        def _local_ai_suggestion(self, prompt: str) -> str:
+            lower = prompt.lower()
+            if "pipeline" in lower or "automate" in lower:
+                return (
+                    "Suggested process: 1) clean input values, 2) compute stats (mean/std), "
+                    "3) detect outliers, 4) generate and export figure as SVG/PDF/600-DPI PNG."
+                )
+            if "microbio" in lower or "growth" in lower:
+                return "Suggested process: run microbiology auto-analysis and inspect μmax, lag phase, and LOF outliers."
+            if "sequence" in lower or "fasta" in lower:
+                return "Suggested process: sanitize sequences, run QC checks, and open sequence viewer for curation."
+            return "Provide a goal (pipeline, microbiology, sequence, or stats) for a concrete suggested workflow."
+
+        def _extract_numeric_payload(self, text: str) -> list[float]:
+            return [float(token) for token in re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", text)]
+
+        def open_ai_assistant(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("AI Assistant (ChatGPT/Gemini/Gemma-Local)")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Ask for workflow suggestions or execute an automated process."))
+
+            prompt_line = QLineEdit()
+            prompt_line.setPlaceholderText("Prompt, e.g. 'Run pipeline on 0.12, 0.18, 0.35, 1.1'")
+            layout.addWidget(prompt_line)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            ask_btn = QPushButton("Get Suggestion")
+            run_btn = QPushButton("Execute Process")
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.addWidget(ask_btn)
+            row_layout.addWidget(run_btn)
+            layout.addWidget(row)
+
+            def ask_ai() -> None:
+                prompt = prompt_line.text().strip()
+                if not prompt:
+                    output.setPlainText("Enter a prompt first.")
+                    return
+                has_key = bool(self.ai_assistant.api_key)
+                if has_key:
+                    response = str(self._execute_with_progress("Querying AI assistant", lambda: self.ai_assistant.chat(prompt)))
+                    if "request failed:" in response.lower():
+                        output.setPlainText(
+                            response
+                            + "\n\nFallback local guidance:\n"
+                            + self._local_ai_suggestion(prompt)
+                        )
+                    else:
+                        output.setPlainText(response)
+                else:
+                    output.setPlainText(
+                        "API key not configured in Settings. Showing local workflow guidance:\n\n"
+                        + self._local_ai_suggestion(prompt)
+                    )
+
+            def execute_process() -> None:
+                prompt = prompt_line.text().strip()
+                if not prompt:
+                    output.setPlainText("Enter a prompt that includes a process request.")
+                    return
+                lower = prompt.lower()
+                if "pipeline" in lower:
+                    values = self._extract_numeric_payload(prompt)
+                    if not values:
+                        output.setPlainText("No numeric payload found. Example: 'run pipeline 0.1,0.2,0.3,1.0'")
+                        return
+                    result = self._execute_with_progress("Running pipeline", lambda: self.pipeline_engine.run_growth_pipeline(values))
+                    output.setPlainText(
+                        "Pipeline executed\n"
+                        f"Cleaned: {result.cleaned}\n"
+                        f"Stats: {result.stats}\n"
+                        f"Outliers: {result.outliers}\n"
+                        f"Figure ready: {'yes' if result.figure is not None else 'no'}"
+                    )
+                    self.info_panel.addItem("AI executed pipeline successfully.")
+                    return
+                if "microbio" in lower or "growth" in lower:
+                    self.run_microbiology_auto_analysis()
+                    output.setPlainText("Executed microbiology auto-analysis. See Inspector for details.")
+                    self.info_panel.addItem("AI executed microbiology auto-analysis.")
+                    return
+                output.setPlainText(
+                    "Supported executions: include 'pipeline' with numbers, or 'microbiology/growth' for auto-analysis."
+                )
+
+            ask_btn.clicked.connect(ask_ai)
+            run_btn.clicked.connect(execute_process)
+            dlg.resize(940, 640)
+            dlg.exec()
+
+        def open_formulation_designer_wizard(self) -> None:
+            open_formulation_designer(self)
+
+        def open_formulation_toolbox(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Chemical/Formulation Toolbox")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Enter chemicals by name or SMILES (comma-separated)."))
+
+            chemicals_line = QLineEdit()
+            chemicals_line.setPlaceholderText("e.g. Benzalkonium chloride, Sodium lauryl sulfate, EDTA")
+            layout.addWidget(chemicals_line)
+
+            target_combo = QComboBox()
+            target_combo.addItems(["cosmetics", "cleaning", "disinfection", "antimicrobial", "antiviral", "antifungal"])
+            layout.addWidget(target_combo)
+
+            organism_combo = QComboBox()
+            organism_combo.addItems(["None", "E. coli", "S. aureus"])
+            layout.addWidget(organism_combo)
+
+            include_soiling_cb = QCheckBox("Include soiling (organic load) as DoE variable")
+            include_hard_water_cb = QCheckBox("Include hard water as DoE variable")
+            layout.addWidget(include_soiling_cb)
+            layout.addWidget(include_hard_water_cb)
+
+            output = QPlainTextEdit()
+            output.setReadOnly(True)
+            layout.addWidget(output)
+
+            run_btn = QPushButton("Analyze Formulation")
+
+            def analyze() -> None:
+                raw = [x.strip() for x in chemicals_line.text().split(",") if x.strip()]
+                if not raw:
+                    output.setPlainText("Enter at least one chemical name or SMILES.")
+                    return
+                target = target_combo.currentText()
+                organism = organism_combo.currentText()
+                organism_value = None if organism == "None" else organism
+                include_soiling = include_soiling_cb.isChecked()
+                include_hard_water = include_hard_water_cb.isChecked()
+
+                try:
+                    report = self.chemical_toolbox.analyze_formulation(raw, target=target)  # type: ignore[arg-type]
+                    doe_plan = self.chemical_toolbox.build_doe_plan(  # type: ignore[arg-type]
+                        target,
+                        include_soiling=include_soiling,
+                        include_hard_water=include_hard_water,
+                        target_organism=organism_value,
+                    )
+                except Exception as exc:
+                    output.setPlainText(self.error_handler.to_plaintext("UNEXPECTED_ERROR", detail=str(exc)))
+                    return
+                lines = [
+                    "Formulation report",
+                    f"Found: {', '.join(r.name for r in report.found) if report.found else 'none'}",
+                    f"Unknown: {', '.join(report.unknown) if report.unknown else 'none'}",
+                    f"Target organism: {organism_value or 'not selected'}",
+                    f"Soiling variable included: {'yes' if include_soiling else 'no'}",
+                    f"Hard-water variable included: {'yes' if include_hard_water else 'no'}",
+                    "",
+                    "Incompatibilities:",
+                    *([f"- {x}" for x in report.incompatibilities] or ["- none detected"]),
+                    "",
+                    "QSAR notes:",
+                    *([f"- {x}" for x in report.qsar_notes] or ["- none"]),
+                    "",
+                    "Industrial guidance:",
+                    *[f"- {x}" for x in report.industrial_guidance],
+                    "",
+                    "Suggested DoE factors:",
+                    *[f"- {f}" for f in doe_plan.factors],
+                    "",
+                    "DoE runs preview:",
+                    *([f"- {run}" for run in doe_plan.runs_preview] or ["- n/a"]),
+                    "",
+                    "DoE interaction map:",
+                    doe_plan.visual_map,
+                ]
+                output.setPlainText("\n".join(lines))
+
+            run_btn.clicked.connect(analyze)
+            layout.addWidget(run_btn)
+            dlg.resize(980, 700)
+            dlg.exec()
+
+        def create_new_project(self) -> None:
+            project_id, ok = QInputDialog.getText(self, "New Project", "Project name:")
+            if not ok:
+                return
+            project_id = project_id.strip()
+            if not project_id:
+                self.statusBar().showMessage("Project name is required", 2500)
+                return
+
+            paths = self._execute_with_progress(
+                "Creating project",
+                lambda: self.workspace_manager.create_project(project_id),
+            )
+            self.info_panel.addItem(f"Created project: {paths.root}")
+            self.info_panel.addItem(f"Results folder: {paths.results}")
+            self.statusBar().showMessage(f"Project '{project_id}' created", 3000)
+
+        def open_toolkit_settings(self) -> None:
+            settings = self.tool_settings.load()
+            prefs = self.preferences_manager.load()
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Integrated Toolkit Settings")
+            layout = QVBoxLayout(dlg)
+            layout.addWidget(QLabel("Enable/disable integrated open-source tools"))
+
+            checkboxes: dict[str, QCheckBox] = {}
+            for key in ["gseapy", "biopandas", "cobrapy", "statsmodels"]:
+                cb = QCheckBox(key)
+                cb.setChecked(bool(settings.get(key, True)))
+                checkboxes[key] = cb
+                layout.addWidget(cb)
+
+            form = QFormLayout()
+            project_root_edit = QLineEdit(prefs.project_root)
+            output_dir_edit = QLineEdit(prefs.output_dir)
+            provider_combo = QComboBox()
+            provider_combo.addItems(["chatgpt", "gemini", "local"])
+            provider_combo.setCurrentText(prefs.ai_provider if prefs.ai_provider in {"chatgpt", "gemini", "local"} else "chatgpt")
+            openai_key_edit = QLineEdit(prefs.openai_api_key)
+            openai_key_edit.setEchoMode(QLineEdit.Password)
+            openai_key_edit.setPlaceholderText("OpenAI API key")
+            gemini_key_edit = QLineEdit(prefs.gemini_api_key)
+            gemini_key_edit.setEchoMode(QLineEdit.Password)
+            gemini_key_edit.setPlaceholderText("Gemini API key")
+
+            project_browse = QPushButton("Browse…")
+            output_browse = QPushButton("Browse…")
+
+            def pick_project_root() -> None:
+                chosen = QFileDialog.getExistingDirectory(self, "Select project root", project_root_edit.text())
+                if chosen:
+                    project_root_edit.setText(chosen)
+
+            def pick_output_dir() -> None:
+                chosen = QFileDialog.getExistingDirectory(self, "Select output directory", output_dir_edit.text())
+                if chosen:
+                    output_dir_edit.setText(chosen)
+
+            project_browse.clicked.connect(pick_project_root)
+            output_browse.clicked.connect(pick_output_dir)
+
+            project_row = QWidget()
+            project_row_layout = QHBoxLayout(project_row)
+            project_row_layout.setContentsMargins(0, 0, 0, 0)
+            project_row_layout.addWidget(project_root_edit)
+            project_row_layout.addWidget(project_browse)
+
+            output_row = QWidget()
+            output_row_layout = QHBoxLayout(output_row)
+            output_row_layout.setContentsMargins(0, 0, 0, 0)
+            output_row_layout.addWidget(output_dir_edit)
+            output_row_layout.addWidget(output_browse)
+
+            form.addRow("Project root", project_row)
+            form.addRow("Output directory", output_row)
+            form.addRow("AI provider", provider_combo)
+            form.addRow("ChatGPT API key", openai_key_edit)
+            form.addRow("Gemini API key", gemini_key_edit)
+            layout.addLayout(form)
+
+            save_btn = QPushButton("Save")
+
+            def save() -> None:
+                new_settings = {k: v.isChecked() for k, v in checkboxes.items()}
+                self.tool_settings.save(new_settings)
+                new_prefs = UserPreferences(
+                    project_root=project_root_edit.text().strip() or "projects",
+                    output_dir=output_dir_edit.text().strip() or "outputs",
+                    ai_provider=provider_combo.currentText(),
+                    openai_api_key=openai_key_edit.text().strip(),
+                    gemini_api_key=gemini_key_edit.text().strip(),
+                )
+                self.preferences_manager.save(new_prefs)
+                self.preferences = new_prefs
+                self.ai_assistant = self._build_ai_assistant()
+                Path(self.preferences.project_root).mkdir(parents=True, exist_ok=True)
+                Path(self.preferences.output_dir).mkdir(parents=True, exist_ok=True)
+                self.workspace_manager = WorkspaceManager(Path(self.preferences.project_root))
+                self.statusBar().showMessage("Toolkit, path, and AI settings saved", 3000)
+                dlg.accept()
+
+            save_btn.clicked.connect(save)
+            layout.addWidget(save_btn)
+            dlg.exec()
+
+        def intelligent_analysis_suggestion(self, path: Path) -> None:
+            ext = path.suffix.lower()
+            if ext in {".fasta", ".fa", ".fastq", ".fq"}:
+                suggestion = "Sequence Viewer + ORF finder + GC profile"
+            elif ext in {".vcf", ".bcf"}:
+                suggestion = "Variant table + filtration + annotation"
+            elif ext in {".pdb", ".cif"}:
+                suggestion = "3D protein model + binding-site analysis"
+            else:
+                suggestion = "General import + data profiling"
+            QMessageBox.information(
+                self,
+                "Intelligent Analysis",
+                f"Detected file: {path.name}\nRecommended workflow: {suggestion}",
+            )
+
+        def show_plugin_marketplace(self) -> None:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Plugin Marketplace")
+            layout = QVBoxLayout(dlg)
+            label = QLabel("Enable/disable trusted plugins (untrusted plugins are blocked by default)")
+            layout.addWidget(label)
+            items = QListWidget()
+            plugins = self.plugin_service.runtime.list_plugins()
+            for plugin in plugins:
+                perms = ", ".join(plugin.permissions) if plugin.permissions else "none"
+                hash_preview = plugin.hash_sha256[:12]
+                trust_label = "trusted" if plugin.trusted else "untrusted"
+                it = QListWidgetItem(
+                    f"{plugin.name} ({plugin.plugin_id})\n"
+                    f"source={plugin.source} | hash={hash_preview} | permissions={perms} | {trust_label}\n"
+                    f"{plugin.description}"
+                )
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(Qt.CheckState.Checked if plugin.enabled and plugin.trusted else Qt.CheckState.Unchecked)
+                items.addItem(it)
+            layout.addWidget(items)
+
+            def persist_states() -> None:
+                for i, plugin in enumerate(plugins):
+                    enabled = items.item(i).checkState() == Qt.CheckState.Checked
+                    self.plugin_service.runtime.set_trusted(plugin.plugin_id, enabled)
+                    self.plugin_service.runtime.set_enabled(plugin.plugin_id, enabled)
+                dlg.accept()
+
+            save_btn = QPushButton("Save")
+            save_btn.clicked.connect(persist_states)
+            layout.addWidget(save_btn)
+            dlg.resize(760, 500)
+            dlg.exec()
+
+        def _open_file_from_toolbar(self) -> None:
+            file_name, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import data",
+                str(Path(self.preferences.project_root)),
+                "Bio Files (*.csv *.tsv *.xlsx *.fasta *.fa *.fastq *.fq *.vcf *.pdb *.cif);;All Files (*.*)",
+            )
+            if not file_name:
+                return
+            path = Path(file_name)
+            if path.suffix.lower() == ".csv":
+                self._execute_with_progress("Importing data", lambda: self.data_viewer.load_file(path))
+            else:
+                self.intelligent_analysis_suggestion(path)
+
+        def _clear_info(self) -> None:
+            self.info_panel.clear()
+            self.info_panel.addItem("Inspector cleared.")
+
+        def apply_theme(self, name: str) -> None:
+            theme = THEMES[name]
+            QApplication.instance().setStyleSheet(theme.stylesheet)
+            self.statusBar().showMessage(f"Theme: {name}", 2500)
+
+        def choose_color(self) -> None:
+            color = pick_color(self, self.palette_store)
+            if color:
+                self.info_panel.addItem(
+                    f"Picked color: {color} | recent={', '.join(self.palette_store.recent[:4])}"
+                )
+
+        def _on_selection_count(self, count: int) -> None:
+            self.info_panel.addItem(f"Selected rows: {count}")
+
+        def search_plugins(self) -> None:
+            query = self.plugin_query.text().strip()
+            if not query:
+                self.statusBar().showMessage("Enter a plugin query", 2500)
+                return
+            if self._plugin_search_thread is not None and self._plugin_search_thread.isRunning():
+                self.statusBar().showMessage("Plugin search already running", 2500)
+                return
+
+            self.task_progress.setRange(0, 0)
+            self.task_progress.setFormat("Searching plugins")
+            self.loading_dialog.setLabelText("Searching plugins…")
+            self.loading_dialog.show()
+
+            worker = PluginSearchWorker(self.plugin_service, query, limit=25)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_plugin_search_finished)
+            worker.failed.connect(self._on_plugin_search_failed)
+            worker.finished.connect(thread.quit)
+            worker.failed.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+            self._plugin_search_worker = worker
+            self._plugin_search_thread = thread
+            thread.start()
+
+        def _on_plugin_search_finished(self, manifests: list, query: str) -> None:
+            self.loading_dialog.hide()
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(100)
+            self.task_progress.setFormat("Plugin search complete")
+            self.plugin_results.clear()
+            for item in manifests:
+                self.plugin_results.addItem(f"{item.id} | {item.version} | {item.description}")
+            self.statusBar().showMessage(f"Found {len(manifests)} plugin candidates for '{query}'", 3500)
+            self._plugin_search_thread = None
+            self._plugin_search_worker = None
+
+        def _on_plugin_search_failed(self, error_message: str) -> None:
+            self.loading_dialog.hide()
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(100)
+            self.task_progress.setFormat("Plugin search failed")
+            self.statusBar().showMessage(f"Plugin search failed: {error_message}", 5000)
+            self._plugin_search_thread = None
+            self._plugin_search_worker = None
+
+        def install_selected(self, item) -> None:  # type: ignore[no-untyped-def]
+            raw = item.text().split(" | ")[0]
+            mode = self.plugin_install_mode.currentText() if hasattr(self, "plugin_install_mode") else "portable"
+            try:
+                target = self.plugin_service.install_selected(raw, mode=mode)
+            except ValueError:
+                QMessageBox.information(self, "Install", "Select a GitHub plugin result to install.")
+                return
+            self.statusBar().showMessage(f"Installed {raw} -> {target.name} ({mode})", 5000)
+
+    app = QApplication(sys.argv)
+
+    splash_pixmap = QPixmap(520, 280)
+    splash_pixmap.fill(QColor("#1A1C1E"))
+    painter = QPainter(splash_pixmap)
+    painter.setPen(QColor("#E0E2EB"))
+    painter.drawText(40, 130, "Bioinformatics Studio")
+    painter.setPen(QColor("#A9ABB3"))
+    painter.drawText(40, 165, "Loading modules, plugins, and workspace…")
+    painter.end()
+    splash = QSplashScreen(splash_pixmap)
+    splash.show()
+    splash.showMessage("Starting application…", Qt.AlignBottom | Qt.AlignLeft, QColor("#E0E2EB"))
+    app.processEvents()
+
+    win = MainWindow()
+    win.resize(1440, 860)
+    win.apply_theme("dark_pharmaceutical")
+    win.show()
+    splash.finish(win)
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
