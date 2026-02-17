@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from concurrent.futures import Future, ThreadPoolExecutor
+import csv
 from dataclasses import dataclass
+import json
 from statistics import correlation
 from pathlib import Path
 from typing import Callable
@@ -10,6 +12,29 @@ from .analysis_library import AnalysisLibrary
 from .data_cleaning import lof_outliers, smart_sanitize_growth_values
 from .runtime import HardwareAbstractionLayer
 from ..visualization.editor_state import GraphEditorState, GraphElement
+
+
+def infer_numeric_series(records: list[dict[str, object]]) -> list[float]:
+    """Auto-map first usable numeric column from row dictionaries."""
+    if not records:
+        return []
+    keys = list(records[0].keys())
+    for key in keys:
+        values: list[float] = []
+        numeric_hits = 0
+        for row in records:
+            raw = row.get(key, 0.0)
+            try:
+                num = float(raw)
+                numeric_hits += 1
+            except Exception:
+                num = 0.0
+            values.append(num)
+        if numeric_hits > 0:
+            return values
+    return [0.0 for _ in records]
+
+
 
 
 @dataclass(slots=True)
@@ -37,6 +62,26 @@ class PythonRPipelineEngine:
         self.hal = HardwareAbstractionLayer()
         self.graph_editor_state = GraphEditorState()
         self.graph_editor_state.upsert(GraphElement(id="pipeline-series", kind="line", properties={"line_width": 2, "symbol": "o"}))
+
+    def load_values_from_file(self, path: Path) -> list[float]:
+        """Read CSV/JSON and infer a numeric series without manual mapping."""
+        suffix = path.suffix.lower()
+        if suffix == ".csv":
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+            return infer_numeric_series(rows)
+        if suffix == ".json":
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(payload, list):
+                if payload and isinstance(payload[0], dict):
+                    return infer_numeric_series(payload)
+                return [float(x or 0.0) for x in payload]
+            if isinstance(payload, dict):
+                records = payload.get("rows")
+                if isinstance(records, list) and records and isinstance(records[0], dict):
+                    return infer_numeric_series(records)
+            raise ValueError("Unsupported JSON structure. Expected list of numbers or list of objects.")
+        raise ValueError(f"Unsupported file type: {suffix}")
 
     def run_growth_pipeline(self, raw_values: list[float | None]) -> PipelineResult:
         sanitized = smart_sanitize_growth_values(raw_values)

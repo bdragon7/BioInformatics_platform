@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from bioplatform.core.pipeline_engine import PythonRPipelineEngine
+from bioplatform.core.pipeline_engine import PythonRPipelineEngine, infer_numeric_series
 
 
 def test_growth_pipeline_produces_stats_and_outliers() -> None:
@@ -40,3 +40,24 @@ def test_world_class_style_guide_has_palette() -> None:
     guide = PythonRPipelineEngine.world_class_plot_style_guide()
     assert "palette" in guide
     assert isinstance(guide["palette"], list)
+
+
+def test_infer_numeric_series_from_records() -> None:
+    series = infer_numeric_series([{"time": "1", "name": "a"}, {"time": "2", "name": "b"}])
+    assert series == [1.0, 2.0]
+
+
+def test_load_values_from_csv_without_manual_mapping(tmp_path: Path) -> None:
+    csv_file = tmp_path / "values.csv"
+    csv_file.write_text("sample,signal\nA,1.2\nB,2.5\n", encoding="utf-8")
+    engine = PythonRPipelineEngine()
+    values = engine.load_values_from_file(csv_file)
+    assert values == [1.2, 2.5]
+
+
+def test_load_values_from_json_without_manual_mapping(tmp_path: Path) -> None:
+    json_file = tmp_path / "values.json"
+    json_file.write_text('[{"x": 3}, {"x": 4.5}]', encoding="utf-8")
+    engine = PythonRPipelineEngine()
+    values = engine.load_values_from_file(json_file)
+    assert values == [3.0, 4.5]

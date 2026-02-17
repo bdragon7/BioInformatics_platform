@@ -17,6 +17,8 @@ def test_canvas_x_widget_and_data_bridge_hooks_present() -> None:
     table = Path("src/bioplatform/gui/data_table.py").read_text(encoding="utf-8")
     assert "Canvas-X" in interactive
     assert "LinearRegionItem" in interactive
+    assert "Quick-Select" in interactive
+    assert "Custom Entry" in interactive
     assert "pointEdited" in interactive
     assert "data_edited_point" in table
     assert "GraphEditorState" in table
