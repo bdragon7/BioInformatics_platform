@@ -55,3 +55,13 @@ def test_formula_detects_indirect_cycle() -> None:
 def test_formula_handles_nested_dependency_chain() -> None:
     rows = [["1", "=A1+1", "=B1+1", "=C1+1"]]
     assert evaluate_formula(rows, rows[0][3], (0, 3)) == "4.0"
+
+
+def test_formula_blocks_code_execution_payload() -> None:
+    rows = [["=__import__('os').system('echo pwned')"]]
+    assert evaluate_formula(rows, rows[0][0], (0, 0)) == "#ERR"
+
+
+def test_formula_supports_power_operator() -> None:
+    rows = [["=2^3"]]
+    assert evaluate_formula(rows, rows[0][0], (0, 0)) == "8.0"

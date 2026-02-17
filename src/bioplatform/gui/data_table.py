@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import ast
 import csv
 from math import sqrt
 from dataclasses import dataclass
+import operator
 from pathlib import Path
 from statistics import mean, median
 
@@ -10,6 +12,31 @@ from ..core.error_prevention import SpreadsheetValueGuard
 from ..core.workspace import WorkspaceManager
 from ..visualization.editor_state import GraphEditorState, GraphElement
 from .interactive_plot import create_interactive_plot_widget
+
+
+_AST_OPS: dict[type[ast.AST], object] = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+}
+
+
+def _eval_ast(node: ast.AST) -> float:
+    if isinstance(node, ast.Constant):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        value = _eval_ast(node.operand)
+        return value if isinstance(node.op, ast.UAdd) else -value
+    if isinstance(node, ast.BinOp):
+        op = _AST_OPS.get(type(node.op))
+        if op is None:
+            raise ValueError("unsupported operation")
+        left = _eval_ast(node.left)
+        right = _eval_ast(node.right)
+        return float(op(left, right))  # type: ignore[misc]
+    raise ValueError("unsupported syntax")
 
 
 def _col_to_index(label: str) -> int:
@@ -158,11 +185,12 @@ def evaluate_formula(
         i += 1
 
     safe_expr = "".join(tokens)
-    safe_expr = safe_expr.replace("SQRT", "sqrt")
-    if any(ch not in "0123456789.+-*/() SQRTsqrt" for ch in safe_expr):
+    safe_expr = safe_expr.replace("^", "**")
+    if any(ch not in "0123456789.+-*/() eE*" for ch in safe_expr):
         return "#ERR"
     try:
-        return str(eval(safe_expr, {"__builtins__": {}}, {"sqrt": sqrt}))
+        tree = ast.parse(safe_expr, mode="eval")
+        return str(_eval_ast(tree.body))
     except Exception:
         return "#ERR"
 
@@ -394,6 +422,7 @@ def create_data_viewer_widget():
                 root.addWidget(self.plot_widget)
                 self.model.data_edited_point.connect(self.plot_widget.on_model_data_edited)
                 self.plot_widget.pointEdited.connect(self._edit_from_plot)
+                self.plot_widget.pointSelected.connect(self._select_from_plot)
 
             bottom = qt.QHBoxLayout()
             self.selection_label = qt.QLabel("Selected rows: 0")
@@ -433,9 +462,19 @@ def create_data_viewer_widget():
             self.graph_editor_state.set_property("series-main", "last_edited_row", row)
 
         def _emit_selection(self, *_args) -> None:
-            count = len(self.table.selectionModel().selectedRows())
+            selected_rows = self.table.selectionModel().selectedRows()
+            count = len(selected_rows)
             self.selection_label.setText(f"Selected rows: {count}")
+            if self.plot_widget is not None and selected_rows:
+                src_idx = self.proxy.mapToSource(selected_rows[0])
+                self.plot_widget.highlight_point(src_idx.row())
             self.selection_changed.emit(count)
+
+        def _select_from_plot(self, row: int, _col: int) -> None:
+            idx = self.model.index(row, 0)
+            proxy_idx = self.proxy.mapFromSource(idx)
+            if proxy_idx.isValid():
+                self.table.selectRow(proxy_idx.row())
 
         def _show_cell_stats(self, index) -> None:  # type: ignore[no-untyped-def]
             src = self.proxy.mapToSource(index)

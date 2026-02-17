@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+try:
+    import numpy as np  # type: ignore
+except Exception:  # pragma: no cover
+    np = None  # type: ignore
+
 
 @dataclass(slots=True)
 class SelectedPoint:
@@ -146,13 +151,21 @@ def create_interactive_plot_widget():
             self._anim.valueChanged.connect(self._refresh_plot)
 
         def set_values(self, values: list[float]) -> None:
-            filtered: list[float] = []
-            for value in values:
+            if np is not None:
                 try:
-                    filtered.append(float(value))
+                    arr = np.asarray(values, dtype=np.float64)
+                    arr = np.nan_to_num(arr, nan=0.0, posinf=0.0, neginf=0.0)
+                    self._values = arr.tolist()
                 except Exception:
-                    filtered.append(0.0)
-            self._values = filtered
+                    self._values = [float(v) if str(v).strip() else 0.0 for v in values]
+            else:
+                filtered: list[float] = []
+                for value in values:
+                    try:
+                        filtered.append(float(value))
+                    except Exception:
+                        filtered.append(0.0)
+                self._values = filtered
             self._map_indices = list(range(len(self._values)))
             self._refresh_plot()
             if self._map_indices:
@@ -216,7 +229,7 @@ def create_interactive_plot_widget():
             self._anim.start()
 
         def _refresh_plot(self, *_args) -> None:
-            x = list(range(len(self._values)))
+            x = np.arange(len(self._values)) if np is not None else list(range(len(self._values)))
             self._mini_curve.setData(x=x, y=self._values)
             self._scatter.setData(x=x, y=self._values)
             self._curve.setPen(pg.mkPen(self._state.color, width=self._state.line_width))
@@ -237,6 +250,14 @@ def create_interactive_plot_widget():
                     self._heatmap.setImage([self._values], levels=(min(self._values), max(self._values) or 1.0))
                 else:
                     self._heatmap.clear()
+
+        def highlight_point(self, row: int) -> None:
+            if row < 0 or row >= len(self._values):
+                return
+            x = [i for i in range(len(self._values))]
+            base_brush = [pg.mkBrush("#F472B6") for _ in x]
+            base_brush[row] = pg.mkBrush("#22D3EE")
+            self._scatter.setData(x=x, y=self._values, brush=base_brush, size=10)
 
         def _on_scatter_clicked(self, _plot, points) -> None:  # type: ignore[no-untyped-def]
             if not points:
