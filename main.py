@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
+# Convenience for running from a source checkout only.
+# Canonical entrypoint is: python -m bioplatform
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 

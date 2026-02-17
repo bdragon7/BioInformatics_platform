@@ -46,3 +46,11 @@ def test_app_toolbar_groups_and_terminal_tabs_present() -> None:
     assert "📄 Log" in source
     assert "📤 Output" in source
     assert "Ctrl+`" in source
+
+
+
+def test_app_uses_async_plugin_search_worker() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert "class PluginSearchWorker" in source
+    assert "moveToThread(thread)" in source
+    assert "_on_plugin_search_finished" in source

@@ -29,3 +29,19 @@ def test_builtin_pymol_plugin_files_present() -> None:
     base = Path("src/bioplatform/plugins/builtin/pymol_bridge")
     assert (base / "manifest.json").exists()
     assert (base / "plugin.py").exists()
+
+
+
+def test_discovery_cran_mocked(monkeypatch) -> None:
+    agg = PluginIndexAggregator()
+
+    def fake_get_json(_url: str):
+        return {
+            "BiocManager": {"Version": "1.30.0", "Title": "BioC helper"},
+            "randompkg": {"Version": "0.1.0", "Title": "Other"},
+        }
+
+    monkeypatch.setattr(agg, "_get_json", fake_get_json)
+    results = agg.search_cran(PluginQuery("bioc", limit=5))
+    assert results
+    assert results[0].id == "cran:BiocManager"

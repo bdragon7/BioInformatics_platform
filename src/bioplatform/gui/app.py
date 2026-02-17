@@ -36,7 +36,7 @@ def run(
     debug: bool = False,
 ) -> int:
     try:
-        from PySide6.QtCore import Qt
+        from PySide6.QtCore import QObject, QThread, Qt, Signal
         from PySide6.QtGui import QAction, QColor, QKeySequence, QPainter, QPixmap, QShortcut
         from PySide6.QtWidgets import (
             QApplication,
@@ -73,6 +73,25 @@ def run(
 
     DataViewerWidget = create_data_viewer_widget()
 
+
+
+    class PluginSearchWorker(QObject):
+        finished = Signal(list, str)
+        failed = Signal(str)
+
+        def __init__(self, aggregator: PluginIndexAggregator, query_text: str, limit: int = 25) -> None:
+            super().__init__()
+            self.aggregator = aggregator
+            self.query_text = query_text
+            self.limit = limit
+
+        def run(self) -> None:
+            try:
+                manifests = self.aggregator.search_all(PluginQuery(self.query_text, limit=self.limit))
+                self.finished.emit(manifests, self.query_text)
+            except Exception as exc:
+                self.failed.emit(str(exc))
+
     class MainWindow(QMainWindow):
         def __init__(self) -> None:
             super().__init__()
@@ -102,6 +121,8 @@ def run(
             self.performance_monitor = PerformanceMonitorModel()
             self.unified_system = UnifiedBioInformaticsSystem()
             self.error_handler = WorkplaceErrorHandler()
+            self._plugin_search_thread: QThread | None = None
+            self._plugin_search_worker: PluginSearchWorker | None = None
 
             self._build_menu_bar()
             self._build_toolbar()
@@ -1066,27 +1087,35 @@ def run(
             dlg = QDialog(self)
             dlg.setWindowTitle("Plugin Marketplace")
             layout = QVBoxLayout(dlg)
-            label = QLabel("Enable/disable hot-swappable modules")
+            label = QLabel("Enable/disable trusted plugins (untrusted plugins are blocked by default)")
             layout.addWidget(label)
             items = QListWidget()
             plugins = self.runtime.list_plugins()
             for plugin in plugins:
-                it = QListWidgetItem(f"{plugin.name} ({plugin.plugin_id}) - {plugin.description}")
+                perms = ", ".join(plugin.permissions) if plugin.permissions else "none"
+                hash_preview = plugin.hash_sha256[:12]
+                trust_label = "trusted" if plugin.trusted else "untrusted"
+                it = QListWidgetItem(
+                    f"{plugin.name} ({plugin.plugin_id})\n"
+                    f"source={plugin.source} | hash={hash_preview} | permissions={perms} | {trust_label}\n"
+                    f"{plugin.description}"
+                )
                 it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                it.setCheckState(Qt.CheckState.Checked if plugin.enabled else Qt.CheckState.Unchecked)
+                it.setCheckState(Qt.CheckState.Checked if plugin.enabled and plugin.trusted else Qt.CheckState.Unchecked)
                 items.addItem(it)
             layout.addWidget(items)
 
             def persist_states() -> None:
                 for i, plugin in enumerate(plugins):
                     enabled = items.item(i).checkState() == Qt.CheckState.Checked
+                    self.runtime.set_trusted(plugin.plugin_id, enabled)
                     self.runtime.set_enabled(plugin.plugin_id, enabled)
                 dlg.accept()
 
             save_btn = QPushButton("Save")
             save_btn.clicked.connect(persist_states)
             layout.addWidget(save_btn)
-            dlg.resize(680, 420)
+            dlg.resize(760, 500)
             dlg.exec()
 
         def _open_file_from_toolbar(self) -> None:
@@ -1128,14 +1157,49 @@ def run(
             if not query:
                 self.statusBar().showMessage("Enter a plugin query", 2500)
                 return
-            manifests = self._execute_with_progress(
-                "Searching plugins",
-                lambda: self.aggregator.search_all(PluginQuery(query, limit=25)),
-            )
+            if self._plugin_search_thread is not None and self._plugin_search_thread.isRunning():
+                self.statusBar().showMessage("Plugin search already running", 2500)
+                return
+
+            self.task_progress.setRange(0, 0)
+            self.task_progress.setFormat("Searching plugins")
+            self.loading_dialog.setLabelText("Searching plugins…")
+            self.loading_dialog.show()
+
+            worker = PluginSearchWorker(self.aggregator, query, limit=25)
+            thread = QThread(self)
+            worker.moveToThread(thread)
+            thread.started.connect(worker.run)
+            worker.finished.connect(self._on_plugin_search_finished)
+            worker.failed.connect(self._on_plugin_search_failed)
+            worker.finished.connect(thread.quit)
+            worker.failed.connect(thread.quit)
+            thread.finished.connect(worker.deleteLater)
+            thread.finished.connect(thread.deleteLater)
+            self._plugin_search_worker = worker
+            self._plugin_search_thread = thread
+            thread.start()
+
+        def _on_plugin_search_finished(self, manifests: list, query: str) -> None:
+            self.loading_dialog.hide()
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(100)
+            self.task_progress.setFormat("Plugin search complete")
             self.plugin_results.clear()
             for item in manifests:
                 self.plugin_results.addItem(f"{item.id} | {item.version} | {item.description}")
-            self.statusBar().showMessage(f"Found {len(manifests)} plugin candidates", 3000)
+            self.statusBar().showMessage(f"Found {len(manifests)} plugin candidates for '{query}'", 3500)
+            self._plugin_search_thread = None
+            self._plugin_search_worker = None
+
+        def _on_plugin_search_failed(self, error_message: str) -> None:
+            self.loading_dialog.hide()
+            self.task_progress.setRange(0, 100)
+            self.task_progress.setValue(100)
+            self.task_progress.setFormat("Plugin search failed")
+            self.statusBar().showMessage(f"Plugin search failed: {error_message}", 5000)
+            self._plugin_search_thread = None
+            self._plugin_search_worker = None
 
         def install_selected(self, item) -> None:  # type: ignore[no-untyped-def]
             raw = item.text().split(" | ")[0]
