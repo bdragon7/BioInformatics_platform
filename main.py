@@ -11,6 +11,7 @@ if str(SRC) not in sys.path:
 
 from bioplatform.gui.app import run
 from bioplatform.gui.helix_main_window import run_helix_ui
+from bioplatform.setup import ensure_pymol_installed, ensure_r_installed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,6 +34,12 @@ def main() -> int:
     except Exception:
         pass
     args = build_parser().parse_args()
+
+    # Critical runtime prerequisites
+    if not ensure_r_installed():
+        print("R runtime installation/verification failed. Exiting.")
+        return 1
+    ensure_pymol_installed()
     if args.helix_ui:
         return run_helix_ui()
     return run(project=args.project, data=args.data, workflow=args.workflow, debug=args.debug)
