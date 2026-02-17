@@ -24,3 +24,10 @@ def test_app_defaults_to_dark_pharmaceutical_theme() -> None:
     source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
     assert 'win.apply_theme("dark_pharmaceutical")' in source
     assert 'self.theme_combo.setCurrentText("dark_pharmaceutical")' in source
+
+
+def test_app_has_plot_console_log_hooks() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert "Visual Plot Builder" in source
+    assert "open_dual_console" in source
+    assert "open_system_log_viewer" in source

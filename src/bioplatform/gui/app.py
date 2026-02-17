@@ -14,6 +14,8 @@ from ..core.r_integration import RIntegrationManager
 from ..core.structure_integration import alphafold_prediction_url, detect_pymol
 from ..core.workspace import WorkspaceManager
 from ..llm.doe_assistant import DoEAssistant
+from ..integration.unified_system import UnifiedBioInformaticsSystem
+from ..plotting.visual_plot_builder import PlotConfiguration, PlotType
 from ..plugins.discovery import PluginIndexAggregator, PluginQuery
 from ..plugins.manager import PluginRegistry
 from ..plugins.microbiology_plugin import MicrobiologyPlugin
@@ -95,6 +97,7 @@ def run(
             self.chemical_toolbox = ChemicalToolbox()
             self.ai_assistant = self._build_ai_assistant()
             self.performance_monitor = PerformanceMonitorModel()
+            self.unified_system = UnifiedBioInformaticsSystem()
 
             self._build_menu_bar()
             self._build_toolbar()
@@ -126,6 +129,7 @@ def run(
             analysis_menu.addAction("Analysis Library", self.open_analysis_library)
             analysis_menu.addAction("Pipeline Runner", self.open_pipeline_runner)
             analysis_menu.addAction("AI Assistant", self.open_ai_assistant)
+            analysis_menu.addAction("Visual Plot Builder", self.open_visual_plot_builder)
 
             structure_menu = menubar.addMenu("&Structure")
             structure_menu.addAction("Structure Tools", self.open_structure_tools)
@@ -137,6 +141,8 @@ def run(
             tools_menu = menubar.addMenu("&Tools")
             tools_menu.addAction("Formulation Toolbox", self.open_formulation_toolbox)
             tools_menu.addAction("Toolkit Settings", self.open_toolkit_settings)
+            tools_menu.addAction("Dual Console", self.open_dual_console)
+            tools_menu.addAction("System Log Viewer", self.open_system_log_viewer)
 
             help_menu = menubar.addMenu("&Help")
             help_menu.addAction("Runtime Status", self.show_runtime_status_dialog)
@@ -663,6 +669,34 @@ def run(
             layout.addWidget(close_btn)
             dlg.resize(420, 360)
             dlg.exec()
+
+
+        def open_visual_plot_builder(self) -> None:
+            config = PlotConfiguration(
+                plot_type=PlotType.SCATTER,
+                data_source="example.csv",
+                x_column="x",
+                y_column="y",
+                title="Preview Scatter",
+            )
+            code = self.unified_system.on_plot_requested(config)
+            self.info_panel.addItem("Visual Plot Builder: generated matplotlib script preview.")
+            self.info_panel.addItem(code.splitlines()[0])
+            self.statusBar().showMessage("Visual Plot Builder script generated", 3000)
+
+        def open_dual_console(self) -> None:
+            self.unified_system.console.run_python("print('hello from python console')")
+            self.unified_system.console.run_r("print('hello from r console')")
+            self.info_panel.addItem("Dual Console ready: Python + R sessions attached.")
+            self.statusBar().showMessage("Dual Console initialized", 3000)
+
+        def open_system_log_viewer(self) -> None:
+            self.unified_system.verify_system()
+            entries = self.unified_system.logger.recent(limit=3)
+            self.info_panel.addItem("System Log Viewer: recent diagnostics captured.")
+            for entry in entries:
+                self.info_panel.addItem(f"{entry.level} {entry.message}")
+            self.statusBar().showMessage("System logs refreshed", 3000)
 
         def _build_ai_assistant(self) -> DoEAssistant:
             provider = self.preferences.ai_provider if self.preferences.ai_provider in {"chatgpt", "gemini", "local"} else "chatgpt"
