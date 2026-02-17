@@ -65,3 +65,18 @@ def test_formula_blocks_code_execution_payload() -> None:
 def test_formula_supports_power_operator() -> None:
     rows = [["=2^3"]]
     assert evaluate_formula(rows, rows[0][0], (0, 0)) == "8.0"
+
+
+def test_formula_supports_nested_math_functions() -> None:
+    rows = [["1"], ["2"], ["3"], ["=LOG(SUM(A1:A3))"]]
+    assert evaluate_formula(rows, rows[3][0], (3, 0)).startswith("0.778")
+
+
+def test_formula_supports_population_stdev_alias() -> None:
+    rows = [["1"], ["2"], ["3"], ["=STDEV.P(A1:A3)"]]
+    assert evaluate_formula(rows, rows[3][0], (3, 0)).startswith("0.816")
+
+
+def test_formula_returns_num_for_invalid_stats_domain() -> None:
+    rows = [["1"], ["=STDEV(A1:A1)"]]
+    assert evaluate_formula(rows, rows[1][0], (1, 0)) == "#NUM!"

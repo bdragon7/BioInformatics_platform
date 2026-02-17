@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import ast
 import csv
-from math import sqrt
-from dataclasses import dataclass
+import math
 import operator
+from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, median
+import statistics
 
 from ..core.error_prevention import SpreadsheetValueGuard
 from ..core.workspace import WorkspaceManager
@@ -22,21 +23,32 @@ _AST_OPS: dict[type[ast.AST], object] = {
     ast.Pow: operator.pow,
 }
 
+EXCEL_FUNCTIONS: dict[str, object] = {
+    "SUM": sum,
+    "ABS": abs,
+    "SQRT": math.sqrt,
+    "LOG": math.log10,
+    "LN": math.log,
+    "EXP": math.exp,
+    "PI": lambda: math.pi,
+    "AVERAGE": statistics.mean,
+    "MEDIAN": statistics.median,
+    "STDEV": statistics.stdev,
+    "STDEV.S": statistics.stdev,
+    "STDDEV": statistics.stdev,
+    "STDEV.P": statistics.pstdev,
+    "STDEV_P": statistics.pstdev,
+    "VAR": statistics.variance,
+    "MAX": max,
+    "MIN": min,
+    "COUNT": len,
+}
 
-def _eval_ast(node: ast.AST) -> float:
-    if isinstance(node, ast.Constant):
-        return float(node.value)
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
-        value = _eval_ast(node.operand)
-        return value if isinstance(node.op, ast.UAdd) else -value
-    if isinstance(node, ast.BinOp):
-        op = _AST_OPS.get(type(node.op))
-        if op is None:
-            raise ValueError("unsupported operation")
-        left = _eval_ast(node.left)
-        right = _eval_ast(node.right)
-        return float(op(left, right))  # type: ignore[misc]
-    raise ValueError("unsupported syntax")
+
+def _format_number(value: float | int) -> str:
+    if isinstance(value, float):
+        return str(float(value))
+    return str(value)
 
 
 def _col_to_index(label: str) -> int:
@@ -93,7 +105,8 @@ def evaluate_formula(
         return "#CYCLE"
     seen.add(current_cell)
 
-    body = expr[1:].strip()
+    body = expr[1:].strip().replace("^", "**")
+    body = body.replace("STDEV.P(", "STDEV_P(")
 
     def cell_value(r: int, c: int) -> float:
         if r < 0 or c < 0 or r >= len(rows) or c >= len(rows[r]):
@@ -108,61 +121,92 @@ def evaluate_formula(
             return _safe_float(nested)
         return _safe_float(str(raw))
 
-    def range_values(range_expr: str) -> list[float]:
-        if ":" not in range_expr:
-            r, c = _cell_ref_to_pos(range_expr)
+    def range_values(start_ref: str, end_ref: str | None = None) -> list[float]:
+        if end_ref is None:
+            r, c = _cell_ref_to_pos(start_ref)
             return [cell_value(r, c)]
-        left, right = [x.strip() for x in range_expr.split(":", 1)]
-        r1, c1 = _cell_ref_to_pos(left)
-        r2, c2 = _cell_ref_to_pos(right)
+        r1, c1 = _cell_ref_to_pos(start_ref)
+        r2, c2 = _cell_ref_to_pos(end_ref)
         rs = range(min(r1, r2), max(r1, r2) + 1)
         cs = range(min(c1, c2), max(c1, c2) + 1)
-        vals = []
+        vals: list[float] = []
         for rr in rs:
             for cc in cs:
                 vals.append(cell_value(rr, cc))
         return vals
 
-    upper = body.upper()
-    for fn in ["SUM", "AVERAGE", "MIN", "MAX", "STDDEV", "STDEV"]:
-        if upper.startswith(f"{fn}(") and body.endswith(")"):
-            inner = body[len(fn) + 1 : -1].strip()
-            try:
-                vals = range_values(inner)
-            except Exception:
-                return "#CYCLE"
-            if not vals:
-                return "0"
-            if fn == "SUM":
-                return str(sum(vals))
-            if fn == "AVERAGE":
-                return str(sum(vals) / len(vals))
-            if fn == "MIN":
-                return str(min(vals))
-            if fn == "MAX":
-                return str(max(vals))
-            if len(vals) <= 1:
-                return "0"
-            avg = sum(vals) / len(vals)
-            sample_var = sum((v - avg) ** 2 for v in vals) / (len(vals) - 1)
-            return str(sqrt(sample_var))
+    def _flatten(items: list[float | list[float]]) -> list[float]:
+        out: list[float] = []
+        for item in items:
+            if isinstance(item, list):
+                out.extend(item)
+            else:
+                out.append(float(item))
+        return out
 
-    if upper.startswith("SQRT(") and body.endswith(")"):
-        inner = body[5:-1].strip()
-        vals = []
-        if ":" in inner or (inner and inner[0].isalpha()):
-            try:
-                vals = range_values(inner)
-            except Exception:
-                return "#CYCLE"
-        if vals:
-            return str(sqrt(max(vals[0], 0.0)))
-        try:
-            return str(sqrt(max(float(inner), 0.0)))
-        except Exception:
-            return "#ERR"
+    def _call_function(fn_name: str, args: list[float | list[float]]) -> float:
+        normalized = fn_name.upper()
+        fn = EXCEL_FUNCTIONS.get(normalized)
+        if fn is None:
+            raise ValueError("unsupported function")
 
-    tokens = []
+        flat_args = _flatten(args)
+        if normalized in {"PI"}:
+            return float(fn())  # type: ignore[misc]
+        if normalized in {"SUM"}:
+            return float(fn(flat_args))  # type: ignore[misc]
+        if normalized in {"AVERAGE", "MEDIAN", "STDEV", "STDEV.S", "STDDEV", "STDEV.P", "STDEV_P", "VAR", "MAX", "MIN"}:
+            if not flat_args:
+                return 0.0
+            return float(fn(flat_args))  # type: ignore[misc]
+        if normalized in {"COUNT"}:
+            return float(fn(flat_args))  # type: ignore[misc]
+        if normalized in {"ABS", "SQRT", "LOG", "LN", "EXP"}:
+            value = flat_args[0] if flat_args else 0.0
+            return float(fn(value))  # type: ignore[misc]
+        raise ValueError("unsupported function")
+
+    def _eval_ast(node: ast.AST) -> float | list[float]:
+        if isinstance(node, ast.Constant):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            try:
+                rr, cc = _cell_ref_to_pos(node.id)
+                return cell_value(rr, cc)
+            except ValueError as exc:
+                if "cycle" in str(exc).lower():
+                    raise
+                raise ValueError("invalid name") from exc
+            except Exception as exc:
+                raise ValueError("invalid name") from exc
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            value = _eval_ast(node.operand)
+            scalar = value[0] if isinstance(value, list) and value else value
+            v = float(scalar)
+            return v if isinstance(node.op, ast.UAdd) else -v
+        if isinstance(node, ast.BinOp):
+            op = _AST_OPS.get(type(node.op))
+            if op is None:
+                raise ValueError("unsupported operation")
+            left = _eval_ast(node.left)
+            right = _eval_ast(node.right)
+            lval = float(left[0] if isinstance(left, list) and left else left)
+            rval = float(right[0] if isinstance(right, list) and right else right)
+            return float(op(lval, rval))  # type: ignore[misc]
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id == "__RANGE__":
+                if len(node.args) != 2 or not all(isinstance(arg, ast.Constant) for arg in node.args):
+                    raise ValueError("invalid range")
+                start_ref = str(node.args[0].value)
+                end_ref = str(node.args[1].value)
+                return range_values(start_ref, end_ref)
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("invalid call")
+            args = [_eval_ast(arg) for arg in node.args]
+            return _call_function(node.func.id, args)
+        raise ValueError("unsupported syntax")
+
+    translated = []
     i = 0
     while i < len(body):
         ch = body[i]
@@ -173,24 +217,38 @@ def evaluate_formula(
             while i < len(body) and body[i].isdigit():
                 i += 1
             ref = body[start:i]
-            try:
-                rr, cc = _cell_ref_to_pos(ref)
-                tokens.append(str(cell_value(rr, cc)))
-            except ValueError as exc:
-                return "#CYCLE" if "cycle" in str(exc).lower() else "#ERR"
-            except Exception:
-                return "#ERR"
+            if i < len(body) and body[i] == ":":
+                i += 1
+                right_start = i
+                while i < len(body) and body[i].isalpha():
+                    i += 1
+                while i < len(body) and body[i].isdigit():
+                    i += 1
+                right_ref = body[right_start:i]
+                if not right_ref:
+                    return "#ERR"
+                translated.append(f'__RANGE__("{ref}","{right_ref}")')
+                continue
+            translated.append(ref)
             continue
-        tokens.append(ch)
+        translated.append(ch)
         i += 1
 
-    safe_expr = "".join(tokens)
-    safe_expr = safe_expr.replace("^", "**")
-    if any(ch not in "0123456789.+-*/() eE*" for ch in safe_expr):
+    safe_expr = "".join(translated)
+    if any(ch not in '0123456789.+-*/() eE,_"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz' for ch in safe_expr):
         return "#ERR"
+
     try:
         tree = ast.parse(safe_expr, mode="eval")
-        return str(_eval_ast(tree.body))
+        result = _eval_ast(tree.body)
+        scalar = float(result[0] if isinstance(result, list) and result else result)
+        return _format_number(scalar)
+    except ZeroDivisionError:
+        return "#DIV/0!"
+    except statistics.StatisticsError:
+        return "#NUM!"
+    except ValueError as exc:
+        return "#CYCLE" if "cycle" in str(exc).lower() else "#ERR"
     except Exception:
         return "#ERR"
 
@@ -206,11 +264,13 @@ class EditAction:
 class QtImports:
     def __init__(self) -> None:
         from PySide6.QtCore import QAbstractTableModel, QModelIndex, QObject, Qt, Signal, Slot
+        from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
         from PySide6.QtWidgets import (
             QFileDialog,
             QHBoxLayout,
             QLabel,
             QLineEdit,
+            QMenu,
             QPushButton,
             QTableView,
             QVBoxLayout,
@@ -223,10 +283,14 @@ class QtImports:
         self.Qt = Qt
         self.Signal = Signal
         self.Slot = Slot
+        self.QAction = QAction
+        self.QGuiApplication = QGuiApplication
+        self.QKeySequence = QKeySequence
         self.QFileDialog = QFileDialog
         self.QHBoxLayout = QHBoxLayout
         self.QLabel = QLabel
         self.QLineEdit = QLineEdit
+        self.QMenu = QMenu
         self.QPushButton = QPushButton
         self.QTableView = QTableView
         self.QVBoxLayout = QVBoxLayout
@@ -327,13 +391,26 @@ def create_data_viewer_widget():
             self.rows.sort(key=lambda r: r[column] if column < len(r) else "", reverse=order == qt.Qt.DescendingOrder)
             self.layoutChanged.emit()
 
+        def insert_row(self, row_idx: int) -> None:
+            target = max(0, min(row_idx, len(self.rows)))
+            self.beginInsertRows(qt.QModelIndex(), target, target)
+            empty_row = [""] * max(len(self.headers), 1)
+            self.rows.insert(target, empty_row)
+            self.endInsertRows()
+
+        def delete_row(self, row_idx: int) -> None:
+            if row_idx < 0 or row_idx >= len(self.rows):
+                return
+            self.beginRemoveRows(qt.QModelIndex(), row_idx, row_idx)
+            self.rows.pop(row_idx)
+            self.endRemoveRows()
+
         def undo(self) -> None:
             if not self.undo_stack:
                 return
             action = self.undo_stack.pop()
             self.rows[action.row][action.col] = action.old
             self.redo_stack.append(action)
-            idx = self.index(action.row, action.col)
             self.dataChanged.emit(self.index(0, 0), self.index(max(len(self.rows)-1,0), max(len(self.headers)-1,0)), [qt.Qt.DisplayRole, qt.Qt.EditRole])
 
         def redo(self) -> None:
@@ -342,7 +419,6 @@ def create_data_viewer_widget():
             action = self.redo_stack.pop()
             self.rows[action.row][action.col] = action.new
             self.undo_stack.append(action)
-            idx = self.index(action.row, action.col)
             self.dataChanged.emit(self.index(0, 0), self.index(max(len(self.rows)-1,0), max(len(self.headers)-1,0)), [qt.Qt.DisplayRole, qt.Qt.EditRole])
 
         def column_stats(self, col: int) -> str:
@@ -363,6 +439,84 @@ def create_data_viewer_widget():
                 f"mean={mean(values):.4g}, median={median(values):.4g}, "
                 f"min={min(values):.4g}, max={max(values):.4g}, missing={missing}"
             )
+
+    class ExcelLikeTableView(qt.QTableView):
+        def __init__(self, parent=None) -> None:
+            super().__init__(parent)
+            self.setContextMenuPolicy(qt.Qt.CustomContextMenu)
+            self.customContextMenuRequested.connect(self._show_context_menu)
+
+        def keyPressEvent(self, event):  # type: ignore[override]
+            if event.matches(qt.QKeySequence.Copy):
+                self.copy_to_clipboard()
+                event.accept()
+                return
+            if event.matches(qt.QKeySequence.Paste):
+                self.paste_from_clipboard()
+                event.accept()
+                return
+            super().keyPressEvent(event)
+
+        def copy_to_clipboard(self) -> None:
+            selection = self.selectionModel()
+            if selection is None or not selection.hasSelection():
+                return
+            indexes = selection.selectedIndexes()
+            if not indexes:
+                return
+            cells: dict[int, dict[int, str]] = {}
+            for idx in indexes:
+                cells.setdefault(idx.row(), {})[idx.column()] = str(idx.data(qt.Qt.DisplayRole) or "")
+            lines: list[str] = []
+            for row in sorted(cells):
+                cols = cells[row]
+                ordered_cols = [cols[c] for c in sorted(cols)]
+                lines.append("\t".join(ordered_cols))
+            qt.QGuiApplication.clipboard().setText("\n".join(lines))
+
+        def paste_from_clipboard(self) -> None:
+            clipboard_text = qt.QGuiApplication.clipboard().text()
+            if not clipboard_text:
+                return
+            model = self.model()
+            selection = self.selectionModel().selectedIndexes() if self.selectionModel() is not None else []
+            start_row = selection[0].row() if selection else 0
+            start_col = selection[0].column() if selection else 0
+
+            for r_offset, row_text in enumerate(clipboard_text.splitlines()):
+                if not row_text:
+                    continue
+                for c_offset, cell_value in enumerate(row_text.split("\t")):
+                    proxy_idx = model.index(start_row + r_offset, start_col + c_offset)
+                    if not proxy_idx.isValid():
+                        continue
+                    source_idx = model.mapToSource(proxy_idx) if hasattr(model, "mapToSource") else proxy_idx
+                    source_model = model.sourceModel() if hasattr(model, "sourceModel") else model
+                    source_model.setData(source_idx, cell_value, qt.Qt.EditRole)
+
+        def _show_context_menu(self, position) -> None:  # type: ignore[no-untyped-def]
+            menu = qt.QMenu(self)
+            insert_action = menu.addAction("Insert Row Above")
+            delete_action = menu.addAction("Delete Selected Row(s)")
+            action = menu.exec(self.viewport().mapToGlobal(position))
+            if action not in {insert_action, delete_action}:
+                return
+
+            selected_rows = self.selectionModel().selectedRows() if self.selectionModel() is not None else []
+            if not selected_rows:
+                return
+            model = self.model()
+            source_model = model.sourceModel() if hasattr(model, "sourceModel") else model
+            source_rows = []
+            for idx in selected_rows:
+                src_idx = model.mapToSource(idx) if hasattr(model, "mapToSource") else idx
+                source_rows.append(src_idx.row())
+
+            if action == insert_action:
+                source_model.insert_row(min(source_rows))
+            elif action == delete_action:
+                for row in sorted(set(source_rows), reverse=True):
+                    source_model.delete_row(row)
 
     class DataViewerWidget(qt.QWidget):
         selection_changed = qt.Signal(int)
@@ -401,7 +555,7 @@ def create_data_viewer_widget():
             top.addWidget(self.export_btn)
             root.addLayout(top)
 
-            self.table = qt.QTableView()
+            self.table = ExcelLikeTableView()
             self.table.setModel(self.proxy)
             self.table.setAlternatingRowColors(True)
             self.table.setSortingEnabled(True)
