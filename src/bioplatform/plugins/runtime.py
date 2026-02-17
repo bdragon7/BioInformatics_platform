@@ -4,6 +4,7 @@ import importlib.util
 import json
 from dataclasses import dataclass
 from pathlib import Path
+import shutil
 from typing import Any
 
 from .base import BioPlugin, PluginContext
@@ -19,13 +20,30 @@ class LocalPlugin:
 
 
 class LocalPluginRuntime:
-    def __init__(self, plugins_dir: Path, state_file: Path) -> None:
+    def __init__(self, plugins_dir: Path, state_file: Path, *, seed_builtins: bool = False) -> None:
         self.plugins_dir = plugins_dir
         self.state_file = state_file
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.state_file.exists():
             self.state_file.write_text("{}", encoding="utf-8")
+        if seed_builtins:
+            self._seed_builtin_plugins()
+
+    def _seed_builtin_plugins(self) -> None:
+        builtin_root = Path(__file__).with_name("builtin")
+        if not builtin_root.exists():
+            return
+        for entry in builtin_root.iterdir():
+            if not entry.is_dir():
+                continue
+            target = self.plugins_dir / entry.name
+            manifest = entry / "manifest.json"
+            plugin_py = entry / "plugin.py"
+            if not (manifest.exists() and plugin_py.exists()):
+                continue
+            if not target.exists():
+                shutil.copytree(entry, target)
 
     def _load_state(self) -> dict[str, bool]:
         try:

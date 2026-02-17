@@ -77,7 +77,7 @@ def run(
 
             self.aggregator = PluginIndexAggregator()
             self.registry = PluginRegistry(Path("config/plugins.json"))
-            self.runtime = LocalPluginRuntime(Path("plugins"), Path("config/plugins_enabled.json"))
+            self.runtime = LocalPluginRuntime(Path("plugins"), Path("config/plugins_enabled.json"), seed_builtins=True)
             self.palette_store = PaletteStore()
             self.r_manager = RIntegrationManager(app_dir=Path.cwd())
             self.r_status = self.r_manager.detect_r()

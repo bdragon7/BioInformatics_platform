@@ -66,3 +66,9 @@ class Plugin(BioPlugin):
     assert len(instances) == 1
     assert isinstance(instances[0], BioPlugin)
     assert instances[0].execute_logic({"x": 1})["result"] == "done"
+
+
+def test_runtime_seeds_builtin_pymol_plugin(tmp_path: Path) -> None:
+    runtime = LocalPluginRuntime(plugins_dir=tmp_path / "plugins", state_file=tmp_path / "enabled.json", seed_builtins=True)
+    ids = {p.plugin_id for p in runtime.list_plugins()}
+    assert "structure.pymol_bridge" in ids

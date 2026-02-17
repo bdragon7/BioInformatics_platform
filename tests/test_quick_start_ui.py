@@ -13,3 +13,8 @@ def test_app_menu_and_runtime_hooks_present() -> None:
     assert "Search GitHub Plugins" in source
     assert "Runtime Status" in source
     assert "plugin_install_mode" in source
+
+
+def test_app_enables_builtin_plugin_seeding() -> None:
+    source = Path("src/bioplatform/gui/app.py").read_text(encoding="utf-8")
+    assert "seed_builtins=True" in source

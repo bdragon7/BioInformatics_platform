@@ -23,3 +23,9 @@ def test_search_all_prefers_github_repo_query() -> None:
     results = agg.search_all(PluginQuery("org/repo", limit=5))
     assert results
     assert results[0].id.startswith("github:")
+
+
+def test_builtin_pymol_plugin_files_present() -> None:
+    base = Path("src/bioplatform/plugins/builtin/pymol_bridge")
+    assert (base / "manifest.json").exists()
+    assert (base / "plugin.py").exists()
